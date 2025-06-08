@@ -1,4 +1,5 @@
 import os
+import json
 import tempfile
 import subprocess
 import tkinter as tk
@@ -6,6 +7,9 @@ from tkinter import ttk, messagebox
 
 from github import Github
 from github.GithubException import GithubException
+
+CONFIG_FILE = "config.json"
+CACHE_DIR = "repo_cache"
 
 
 class BulkMerger(tk.Tk):
@@ -16,8 +20,12 @@ class BulkMerger(tk.Tk):
         self.token_var = tk.StringVar()
         self.repo_var = tk.StringVar()
         self.pr_vars = []
+        self.cached_repos = []
+        self.config_token = ""
+        self.load_config()
         self.create_widgets()
         self.prs = []
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def create_widgets(self):
         frm = ttk.Frame(self)
@@ -56,18 +64,63 @@ class BulkMerger(tk.Tk):
         self.text_output.insert(tk.END, message + "\n")
         self.text_output.see(tk.END)
 
+    def load_config(self):
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                self.token_var.set(cfg.get("token", ""))
+                self.cached_repos = cfg.get("repos", [])
+                self.config_token = cfg.get("token", "")
+            except Exception:
+                self.cached_repos = []
+                self.config_token = ""
+
+    def save_config(self):
+        cfg = {"token": self.token_var.get(), "repos": self.cached_repos}
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f)
+
+    def on_close(self):
+        self.save_config()
+        self.destroy()
+
+    def get_local_repo(self, repo_url):
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        name = os.path.splitext(os.path.basename(repo_url))[0]
+        path = os.path.join(CACHE_DIR, name)
+        if not os.path.exists(path):
+            subprocess.run(["git", "clone", repo_url, path], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        else:
+            subprocess.run(["git", "-C", path, "remote", "set-url", "origin", repo_url], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(["git", "-C", path, "fetch", "origin"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return path
+
     def load_repos(self):
         token = self.token_var.get()
         if not token:
             messagebox.showerror("Error", "Please enter a GitHub token")
             return
-        g = Github(token)
-        try:
-            repos = list(g.get_user().get_repos())
-        except GithubException as e:
-            messagebox.showerror("Error", f"Failed to load repositories: {e.data}")
-            return
-        repo_names = [r.full_name for r in repos]
+        repo_names = []
+        if token == self.config_token and self.cached_repos:
+            repo_names = self.cached_repos
+        else:
+            g = Github(token, per_page=100)
+            try:
+                repos = list(g.get_user().get_repos())
+            except GithubException as e:
+                messagebox.showerror("Error", f"Failed to load repositories: {e.data}")
+                return
+            repo_names = [r.full_name for r in repos]
+            if not self.cached_repos:
+                self.cached_repos = repo_names
+            else:
+                known = set(self.cached_repos)
+                for name in repo_names:
+                    if name not in known:
+                        self.cached_repos.append(name)
+            self.config_token = token
+            self.save_config()
         self.repo_combo['values'] = repo_names
         if repo_names:
             self.repo_combo.current(0)
@@ -76,7 +129,7 @@ class BulkMerger(tk.Tk):
     def load_prs(self, state="open"):
         token = self.token_var.get()
         repo_name = self.repo_var.get()
-        g = Github(token)
+        g = Github(token, per_page=100)
         repo = g.get_repo(repo_name)
         self.prs = [pr for pr in repo.get_pulls(state=state, sort="created") if state != "closed" or pr.merged]
         for widget in self.pr_frame.winfo_children():
@@ -89,26 +142,25 @@ class BulkMerger(tk.Tk):
         self.log(f"Loaded {len(self.prs)} pull requests.")
 
     def attempt_conflict_resolution(self, repo_url, base_branch, pr_branch):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            subprocess.run(["git", "clone", repo_url, tmpdir], check=True)
-            cwd = os.getcwd()
-            os.chdir(tmpdir)
-            subprocess.run(["git", "checkout", base_branch], check=True)
-            subprocess.run(["git", "pull"], check=True)
-            subprocess.run(["git", "fetch", "origin", pr_branch], check=True)
-            merge_proc = subprocess.run(["git", "merge", f"origin/{pr_branch}", "-X", "theirs"], capture_output=True)
-            if merge_proc.returncode != 0:
-                os.chdir(cwd)
-                return False, merge_proc.stderr.decode()
-            subprocess.run(["git", "commit", "-am", f"Auto-merge PR {pr_branch}"], check=True)
-            subprocess.run(["git", "push", "origin", base_branch], check=True)
+        repo_path = self.get_local_repo(repo_url)
+        cwd = os.getcwd()
+        os.chdir(repo_path)
+        subprocess.run(["git", "checkout", base_branch], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(["git", "pull", "origin", base_branch], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(["git", "fetch", "origin", pr_branch], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        merge_proc = subprocess.run(["git", "merge", f"origin/{pr_branch}", "-X", "theirs"], capture_output=True)
+        if merge_proc.returncode != 0:
             os.chdir(cwd)
+            return False, merge_proc.stderr.decode()
+        subprocess.run(["git", "commit", "-am", f"Auto-merge PR {pr_branch}"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(["git", "push", "origin", base_branch], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        os.chdir(cwd)
         return True, "Conflict resolved"
 
     def merge_selected(self):
         token = self.token_var.get()
         repo_name = self.repo_var.get()
-        g = Github(token)
+        g = Github(token, per_page=100)
         repo = g.get_repo(repo_name)
         for var, pr in zip(self.pr_vars, self.prs):
             if var.get():
@@ -133,36 +185,35 @@ class BulkMerger(tk.Tk):
     def revert_selected(self):
         token = self.token_var.get()
         repo_name = self.repo_var.get()
-        g = Github(token)
+        g = Github(token, per_page=100)
         repo = g.get_repo(repo_name)
         repo_url = repo.clone_url.replace("https://", f"https://{token}@")
-        with tempfile.TemporaryDirectory() as tmpdir:
-            subprocess.run(["git", "clone", repo_url, tmpdir], check=True)
-            cwd = os.getcwd()
-            os.chdir(tmpdir)
-            subprocess.run(["git", "pull"], check=True)
-            for var, pr in zip(self.pr_vars, self.prs):
-                if var.get():
-                    if not pr.merged:
-                        self.log(f"PR #{pr.number} not merged; skipping")
-                        continue
-                    subprocess.run(["git", "checkout", pr.base.ref], check=True)
-                    subprocess.run(["git", "pull", "origin", pr.base.ref], check=True)
-                    revert_proc = subprocess.run([
-                        "git",
-                        "revert",
-                        "-m",
-                        "1",
-                        pr.merge_commit_sha,
-                    ], capture_output=True)
-                    if revert_proc.returncode == 0:
-                        subprocess.run(["git", "push", "origin", pr.base.ref], check=True)
-                        self.log(f"Reverted PR #{pr.number}")
-                    else:
-                        self.log(
-                            f"Failed to revert PR #{pr.number}: {revert_proc.stderr.decode()}"
-                        )
-            os.chdir(cwd)
+        repo_path = self.get_local_repo(repo_url)
+        cwd = os.getcwd()
+        os.chdir(repo_path)
+        subprocess.run(["git", "pull"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        for var, pr in zip(self.pr_vars, self.prs):
+            if var.get():
+                if not pr.merged:
+                    self.log(f"PR #{pr.number} not merged; skipping")
+                    continue
+                subprocess.run(["git", "checkout", pr.base.ref], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                subprocess.run(["git", "pull", "origin", pr.base.ref], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                revert_proc = subprocess.run([
+                    "git",
+                    "revert",
+                    "-m",
+                    "1",
+                    pr.merge_commit_sha,
+                ], capture_output=True)
+                if revert_proc.returncode == 0:
+                    subprocess.run(["git", "push", "origin", pr.base.ref], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    self.log(f"Reverted PR #{pr.number}")
+                else:
+                    self.log(
+                        f"Failed to revert PR #{pr.number}: {revert_proc.stderr.decode()}"
+                    )
+        os.chdir(cwd)
 
 
 def main():
