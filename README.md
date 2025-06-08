@@ -23,9 +23,10 @@ pip install -r requirements.txt
 python app.py
 ```
 
-You will be prompted for a GitHub token and the repository in `owner/repo` format.
-Use the **Load PRs** button to fetch open pull requests. You can load previously
-merged pull requests with **Load Merged PRs**. Select the ones you want
+After providing your GitHub token click **Load Repos** to fetch repositories
+available to the token. Choose one from the drop-down and use **Load PRs** to
+fetch open pull requests. You can load previously merged pull requests with
+**Load Merged PRs**. Select the ones you want
 to merge or revert, then click **Merge Selected** or **Revert Selected**.
 
 The script attempts to merge using the GitHub API and falls back to a local
