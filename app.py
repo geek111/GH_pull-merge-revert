@@ -25,9 +25,13 @@ class BulkMerger(tk.Tk):
 
         ttk.Label(frm, text="GitHub Token:").grid(row=0, column=0, sticky=tk.W)
         ttk.Entry(frm, textvariable=self.token_var, show="*").grid(row=0, column=1, sticky=tk.EW)
-        ttk.Label(frm, text="Repository (owner/repo):").grid(row=1, column=0, sticky=tk.W)
-        ttk.Entry(frm, textvariable=self.repo_var).grid(row=1, column=1, sticky=tk.EW)
+        ttk.Button(frm, text="Load Repos", command=self.load_repos).grid(row=0, column=2, padx=5)
+
+        ttk.Label(frm, text="Repository:").grid(row=1, column=0, sticky=tk.W)
+        self.repo_combo = ttk.Combobox(frm, textvariable=self.repo_var, state="readonly")
+        self.repo_combo.grid(row=1, column=1, columnspan=2, sticky=tk.EW)
         frm.columnconfigure(1, weight=1)
+        frm.columnconfigure(2, weight=1)
 
         btn_load = ttk.Button(frm, text="Load PRs", command=self.load_prs)
         btn_load.grid(row=2, column=0, pady=5)
@@ -40,17 +44,34 @@ class BulkMerger(tk.Tk):
         btn_revert.grid(row=3, column=1, pady=5, sticky=tk.E)
 
         self.pr_frame = ttk.Frame(frm)
-        self.pr_frame.grid(row=4, column=0, columnspan=2, sticky=tk.NSEW)
+        self.pr_frame.grid(row=4, column=0, columnspan=3, sticky=tk.NSEW)
         frm.rowconfigure(4, weight=1)
         frm.columnconfigure(0, weight=1)
         frm.columnconfigure(1, weight=1)
 
         self.text_output = tk.Text(frm, height=10)
-        self.text_output.grid(row=5, column=0, columnspan=2, sticky=tk.EW)
+        self.text_output.grid(row=5, column=0, columnspan=3, sticky=tk.EW)
 
     def log(self, message):
         self.text_output.insert(tk.END, message + "\n")
         self.text_output.see(tk.END)
+
+    def load_repos(self):
+        token = self.token_var.get()
+        if not token:
+            messagebox.showerror("Error", "Please enter a GitHub token")
+            return
+        g = Github(token)
+        try:
+            repos = list(g.get_user().get_repos())
+        except GithubException as e:
+            messagebox.showerror("Error", f"Failed to load repositories: {e.data}")
+            return
+        repo_names = [r.full_name for r in repos]
+        self.repo_combo['values'] = repo_names
+        if repo_names:
+            self.repo_combo.current(0)
+            self.repo_var.set(repo_names[0])
 
     def load_prs(self, state="open"):
         token = self.token_var.get()
