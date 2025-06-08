@@ -1,1 +1,43 @@
-# GH_pull-merge-revert
+# GitHub Bulk Merger
+
+This repository contains a small GUI tool written in Python that allows you to
+select multiple pull requests from a repository and merge them in bulk or revert
+previous merges.
+If a merge conflict occurs, the tool attempts a naive resolution by preferring
+changes from the pull request branch.
+
+## Requirements
+
+- Python 3.8+
+- Packages listed in `requirements.txt`
+
+Install dependencies with:
+
+```bash
+pip install -r requirements.txt
+```
+
+## Running
+
+```bash
+python app.py
+```
+
+You will be prompted for a GitHub token and the repository in `owner/repo` format.
+Use the **Load PRs** button to fetch open pull requests. You can load previously
+merged pull requests with **Load Merged PRs**. Select the ones you want
+to merge or revert, then click **Merge Selected** or **Revert Selected**.
+
+The script attempts to merge using the GitHub API and falls back to a local
+`git` merge with a simple conflict strategy if necessary.
+
+## Building an executable
+
+To create a Windows `.exe`, you can use [PyInstaller](https://pyinstaller.org/):
+
+```bash
+pip install pyinstaller
+pyinstaller --onefile app.py
+```
+
+The resulting executable will be placed in the `dist` folder.
