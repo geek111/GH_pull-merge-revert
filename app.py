@@ -3,7 +3,7 @@ import json
 import tempfile
 import subprocess
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, font
 
 from github import Github
 from github.GithubException import GithubException
@@ -15,6 +15,9 @@ CACHE_DIR = "repo_cache"
 class BulkMerger(tk.Tk):
     def __init__(self):
         super().__init__()
+        default_font = tk.font.nametofont("TkDefaultFont")
+        default_font.configure(size=13)
+        self.option_add("*Font", default_font)
         self.title("GitHub Bulk Merger")
         self.geometry("600x400")
         self.token_var = tk.StringVar()
