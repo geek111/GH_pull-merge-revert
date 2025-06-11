@@ -6,9 +6,31 @@ interface for the GitPilot application, including layouts, widgets, and signal c
 import sys
 from PyQt5.QtWidgets import (QMainWindow, QApplication, QWidget,
                              QVBoxLayout, QHBoxLayout, QTextEdit,
-                             QPushButton, QLineEdit, QFileDialog, QLabel, QInputDialog)
+                             QPushButton, QLineEdit, QFileDialog, QLabel, QInputDialog, QDialog)
 from PyQt5.QtCore import Qt
+import re
 from git_utils import GitExecutor
+
+
+class BranchFromCommitDialog(QDialog):
+    """Dialog to gather branch prefix and commit hash."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Create Versioned Branch")
+        layout = QVBoxLayout(self)
+        layout.addWidget(QLabel("Branch Prefix:"))
+        self.prefix_edit = QLineEdit()
+        layout.addWidget(self.prefix_edit)
+        layout.addWidget(QLabel("Commit Hash:"))
+        self.hash_edit = QLineEdit()
+        layout.addWidget(self.hash_edit)
+        create_btn = QPushButton("Utwórz gałąź")
+        create_btn.clicked.connect(self.accept)
+        layout.addWidget(create_btn)
+
+    def get_values(self):
+        return self.prefix_edit.text().strip(), self.hash_edit.text().strip()
 
 class MainWindow(QMainWindow):
     """Main application window for GitPilot.
@@ -85,6 +107,15 @@ class MainWindow(QMainWindow):
         buttons_group3_layout.addWidget(self.merge_button)
         main_layout.addLayout(buttons_group3_layout)
 
+        buttons_group4_layout = QHBoxLayout()
+        self.versioned_branch_button = QPushButton("New Branch From Commit")
+        buttons_group4_layout.addWidget(self.versioned_branch_button)
+        main_layout.addLayout(buttons_group4_layout)
+
+        self.resolve_conflict_button = QPushButton("Zatwierdź konflikt")
+        self.resolve_conflict_button.setVisible(False)
+        main_layout.addWidget(self.resolve_conflict_button)
+
         # Connect button signals to handler methods
         self.commit_button.clicked.connect(self.on_commit_click)
         self.status_button.clicked.connect(self.on_status_click)
@@ -95,6 +126,8 @@ class MainWindow(QMainWindow):
         self.branch_button.clicked.connect(self.on_branch_click)
         self.checkout_button.clicked.connect(self.on_checkout_click)
         self.merge_button.clicked.connect(self.on_merge_click)
+        self.versioned_branch_button.clicked.connect(self.create_versioned_branch_from_commit)
+        self.resolve_conflict_button.clicked.connect(self.confirm_conflict_commit)
         # self.select_repo_button is already connected in __init__
         self.append_output("GitPilot UI Initialized. Select a repository to begin.")
 
@@ -234,8 +267,89 @@ class MainWindow(QMainWindow):
                 self.append_output(f"\n>>> git merge {actual_branch_name}")
                 self.git_executor.execute_command(self.current_repo_path, ["merge", actual_branch_name])
             elif ok:
-                 self.append_output("Merge operation cancelled: No branch name entered.")
+                self.append_output("Merge operation cancelled: No branch name entered.")
             # else: user pressed Cancel
+
+    def run_command_sequence(self, commands, success_cb=None, failure_cb=None):
+        """Runs git commands sequentially using GitExecutor."""
+        self._command_queue = list(commands)
+        self._seq_success_cb = success_cb
+        self._seq_failure_cb = failure_cb
+        self._run_next_command()
+
+    def _run_next_command(self):
+        if not self._command_queue:
+            if self._seq_success_cb:
+                self._seq_success_cb()
+            return
+        cmd = self._command_queue.pop(0)
+        self._current_seq_cmd = cmd
+        self.git_executor.command_finished.connect(self._handle_seq_finished)
+        self.append_output(f"\n>>> git {' '.join(cmd)}")
+        self.git_executor.execute_command(self.current_repo_path, cmd)
+
+    def _handle_seq_finished(self, stdout_str, stderr_str, exit_code):
+        self.git_executor.command_finished.disconnect(self._handle_seq_finished)
+        if exit_code != 0:
+            if self._seq_failure_cb:
+                self._seq_failure_cb(stderr_str, exit_code)
+            self._command_queue = []
+            return
+        self._run_next_command()
+
+    def create_versioned_branch_from_commit(self):
+        """Creates a versioned branch and cherry-picks a commit."""
+        if not self._check_repo_selected():
+            return
+        dlg = BranchFromCommitDialog(self)
+        if dlg.exec_() != QDialog.Accepted:
+            self.append_output("Branch creation cancelled.")
+            return
+        prefix, commit_hash = dlg.get_values()
+        if not prefix or not commit_hash:
+            self.append_output("ERROR: Both prefix and commit hash are required.")
+            return
+        self._pending_prefix = prefix
+        self._pending_hash = commit_hash
+        self.git_executor.command_finished.connect(self._on_list_branches_finished)
+        self.append_output(f"\n>>> git branch --list {prefix}-v*")
+        self.git_executor.execute_command(self.current_repo_path, ["branch", "--list", f"{prefix}-v*"])
+
+    def _on_list_branches_finished(self, stdout_str, stderr_str, exit_code):
+        self.git_executor.command_finished.disconnect(self._on_list_branches_finished)
+        versions = []
+        for line in stdout_str.splitlines():
+            branch = line.strip().lstrip('*').strip()
+            m = re.match(rf"{re.escape(self._pending_prefix)}-v(\d+)", branch)
+            if m:
+                try:
+                    versions.append(int(m.group(1)))
+                except ValueError:
+                    pass
+        next_ver = max(versions) + 1 if versions else 1
+        self._new_branch_name = f"{self._pending_prefix}-v{next_ver}"
+        self.append_output(f"Proposed branch name: {self._new_branch_name}")
+        cmds = [
+            ["checkout", "main"],
+            ["pull"],
+            ["checkout", "-b", self._new_branch_name],
+            ["cherry-pick", self._pending_hash, "-X", "theirs"],
+        ]
+        self.run_command_sequence(cmds, self._on_branch_success, self._on_branch_failure)
+
+    def _on_branch_success(self):
+        self.append_output(f"Branch {self._new_branch_name} created and commit applied.")
+
+    def _on_branch_failure(self, stderr_str, exit_code):
+        self.append_output(f"Failed during branch creation: {stderr_str}")
+        self.resolve_conflict_button.setVisible(True)
+
+    def confirm_conflict_commit(self):
+        """Finalize manual conflict resolution."""
+        if not self._check_repo_selected():
+            return
+        cmds = [["add", "."], ["commit", "-m", "Manual conflict resolution"]]
+        self.run_command_sequence(cmds, lambda: self.resolve_conflict_button.setVisible(False))
 
     # Conceptual method to enable/disable buttons during command execution
     # def set_buttons_enabled(self, enabled_status):
