@@ -2,6 +2,7 @@ import os
 import json
 import tempfile
 import subprocess
+import webbrowser
 import tkinter as tk
 from tkinter import ttk, messagebox, font
 
@@ -53,15 +54,27 @@ class BulkMerger(tk.Tk):
         btn_merge.grid(row=3, column=0, pady=5)
         btn_revert = ttk.Button(frm, text="Revert Selected", command=self.revert_selected)
         btn_revert.grid(row=3, column=1, pady=5, sticky=tk.E)
+        btn_open = ttk.Button(frm, text="Open Selected", command=self.open_selected)
+        btn_open.grid(row=3, column=2, pady=5, sticky=tk.E)
+        btn_close = ttk.Button(frm, text="Close Selected", command=self.close_selected)
+        btn_close.grid(row=3, column=3, pady=5, sticky=tk.E)
 
-        self.pr_frame = ttk.Frame(frm)
-        self.pr_frame.grid(row=4, column=0, columnspan=3, sticky=tk.NSEW)
+        self.pr_canvas = tk.Canvas(frm)
+        self.pr_canvas.grid(row=4, column=0, columnspan=3, sticky=tk.NSEW)
+        self.pr_scrollbar = ttk.Scrollbar(frm, orient="vertical", command=self.pr_canvas.yview)
+        self.pr_scrollbar.grid(row=4, column=3, sticky=tk.NS)
+        self.pr_canvas.configure(yscrollcommand=self.pr_scrollbar.set)
+        self.pr_frame = ttk.Frame(self.pr_canvas)
+        self.pr_canvas.create_window((0, 0), window=self.pr_frame, anchor="nw")
+        self.pr_frame.bind("<Configure>", lambda e: self.pr_canvas.configure(scrollregion=self.pr_canvas.bbox("all")))
+
         frm.rowconfigure(4, weight=1)
         frm.columnconfigure(0, weight=1)
         frm.columnconfigure(1, weight=1)
+        frm.columnconfigure(2, weight=1)
 
         self.text_output = tk.Text(frm, height=10)
-        self.text_output.grid(row=5, column=0, columnspan=3, sticky=tk.EW)
+        self.text_output.grid(row=5, column=0, columnspan=4, sticky=tk.EW)
 
     def log(self, message):
         self.text_output.insert(tk.END, message + "\n")
@@ -217,6 +230,28 @@ class BulkMerger(tk.Tk):
                         f"Failed to revert PR #{pr.number}: {revert_proc.stderr.decode()}"
                     )
         os.chdir(cwd)
+
+    def open_selected(self):
+        count = 0
+        for var, pr in zip(self.pr_vars, self.prs):
+            if var.get():
+                webbrowser.open_new(pr.html_url)
+                count += 1
+        if count:
+            self.log(f"Opened {count} pull request{'s' if count > 1 else ''} in browser.")
+
+    def close_selected(self):
+        token = self.token_var.get()
+        repo_name = self.repo_var.get()
+        g = Github(token, per_page=100)
+        repo = g.get_repo(repo_name)
+        for var, pr in zip(self.pr_vars, self.prs):
+            if var.get() and pr.state != "closed":
+                try:
+                    pr.edit(state="closed")
+                    self.log(f"Closed PR #{pr.number}")
+                except GithubException as e:
+                    self.log(f"Failed to close PR #{pr.number}: {e.data}")
 
 
 def main():
