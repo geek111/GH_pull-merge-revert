@@ -4,7 +4,7 @@ GitPilot: Git Command Execution Utilities.
 This module provides the GitExecutor class, which uses QProcess to run
 Git commands asynchronously and emits signals with their results.
 """
-from PyQt5.QtCore import QObject, QProcess, pyqtSignal, QTimer
+from PyQt5.QtCore import QObject, QProcess, pyqtSignal, QTimer, QProcessEnvironment
 
 class GitExecutor(QObject):
     """
@@ -23,7 +23,7 @@ class GitExecutor(QObject):
         self.stdout_acc = "" # Accumulator for standard output
         self.stderr_acc = "" # Accumulator for standard error
 
-    def execute_command(self, repository_path, command_parts):
+    def execute_command(self, repository_path, command_parts, env_vars: dict = None):
         """
         Executes a Git command in the specified repository.
 
@@ -40,6 +40,12 @@ class GitExecutor(QObject):
 
         self.process = QProcess()
         self.process.setWorkingDirectory(repository_path)
+
+        if env_vars:
+            environment = QProcessEnvironment.systemEnvironment()
+            for key, value in env_vars.items():
+                environment.insert(key, value)
+            self.process.setProcessEnvironment(environment)
 
         self.stdout_acc = "" # Reset accumulators for the new command
         self.stderr_acc = ""
