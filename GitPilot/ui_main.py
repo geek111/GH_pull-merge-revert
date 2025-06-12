@@ -142,6 +142,49 @@ class MainWindow(QMainWindow):
         buttons_group4_layout.addWidget(self.interactive_rebase_button)
         main_layout.addLayout(buttons_group4_layout)
 
+        # Remote Operations Buttons
+        remote_ops_layout = QHBoxLayout()
+        self.list_remotes_button = QPushButton("List Remotes")
+        self.list_remotes_button.clicked.connect(self.on_list_remotes_click)
+
+        self.add_remote_button = QPushButton("Add Remote")
+        self.add_remote_button.clicked.connect(self.on_add_remote_click)
+
+        self.remove_remote_button = QPushButton("Remove Remote")
+        self.remove_remote_button.clicked.connect(self.on_remove_remote_click)
+
+        remote_ops_layout.addWidget(self.list_remotes_button)
+        remote_ops_layout.addWidget(self.add_remote_button)
+        remote_ops_layout.addWidget(self.remove_remote_button)
+        main_layout.addLayout(remote_ops_layout)
+
+        # Git Flow Operations Buttons
+        git_flow_layout1 = QHBoxLayout()
+        self.start_feature_button = QPushButton("Start Feature")
+        self.start_feature_button.clicked.connect(self.on_start_feature_click)
+        self.finish_feature_button = QPushButton("Finish Feature")
+        self.finish_feature_button.clicked.connect(self.on_finish_feature_click)
+        self.start_release_button = QPushButton("Start Release")
+        self.start_release_button.clicked.connect(self.on_start_release_click)
+
+        git_flow_layout1.addWidget(self.start_feature_button)
+        git_flow_layout1.addWidget(self.finish_feature_button)
+        git_flow_layout1.addWidget(self.start_release_button)
+        main_layout.addLayout(git_flow_layout1)
+
+        git_flow_layout2 = QHBoxLayout()
+        self.finish_release_button = QPushButton("Finish Release")
+        self.finish_release_button.clicked.connect(self.on_finish_release_click)
+        self.start_hotfix_button = QPushButton("Start Hotfix")
+        # self.start_hotfix_button.clicked.connect(self.on_start_hotfix_click) # Connection later
+        self.finish_hotfix_button = QPushButton("Finish Hotfix")
+        # self.finish_hotfix_button.clicked.connect(self.on_finish_hotfix_click) # Connection later
+
+        git_flow_layout2.addWidget(self.finish_release_button)
+        git_flow_layout2.addWidget(self.start_hotfix_button)
+        git_flow_layout2.addWidget(self.finish_hotfix_button)
+        main_layout.addLayout(git_flow_layout2)
+
         self.resolve_conflict_button = QPushButton("Zatwierdź konflikt")
         self.resolve_conflict_button.setVisible(False)
         main_layout.addWidget(self.resolve_conflict_button)
@@ -162,8 +205,231 @@ class MainWindow(QMainWindow):
         self.show_unstaged_diff_button.clicked.connect(self.on_show_unstaged_diff_click)
         self.show_staged_diff_button.clicked.connect(self.on_show_staged_diff_click)
         self.interactive_rebase_button.clicked.connect(self.on_interactive_rebase_start_clicked)
+        # Connect remote ops buttons
+
 
         self.append_output("GitPilot UI Initialized. Select a repository to begin.")
+
+    def on_list_remotes_click(self):
+        if self._check_repo_selected():
+            self.append_output("\n>>> git remote -v")
+            self.git_executor.execute_command(self.current_repo_path, ["remote", "-v"])
+
+    def on_add_remote_click(self):
+        if not self._check_repo_selected():
+            return
+
+        dialog = AddRemoteDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            name, url = dialog.get_values()
+            if name and url:
+                self.append_output(f"\n>>> git remote add {name} {url}")
+                self.git_executor.execute_command(self.current_repo_path, ["remote", "add", name, url])
+            else:
+                self.append_output("ERROR: Remote name and URL cannot be empty.")
+        else:
+            self.append_output("Add remote operation cancelled.")
+
+    def on_remove_remote_click(self):
+        if not self._check_repo_selected():
+            return
+
+        self.append_output("\n>>> git remote")
+        # Temporarily disconnect the generic handler and connect a specific one for listing remotes
+        try:
+            self.git_executor.command_finished.disconnect(self._process_git_command_results)
+        except TypeError:
+            self.append_output("DEBUG: _process_git_command_results was not connected or already disconnected for remove remote.")
+            pass # Was not connected
+        self.git_executor.command_finished.connect(self._handle_list_remotes_for_removal)
+        self.git_executor.execute_command(self.current_repo_path, ["remote"])
+
+    def _handle_list_remotes_for_removal(self, stdout_str, stderr_str, exit_code):
+        # Reconnect the generic handler and disconnect this specific one
+        try:
+            self.git_executor.command_finished.disconnect(self._handle_list_remotes_for_removal)
+        except TypeError:
+            self.append_output("DEBUG: _handle_list_remotes_for_removal was not connected for remove remote result.")
+        self.git_executor.command_finished.connect(self._process_git_command_results)
+
+        if exit_code != 0 or not stdout_str.strip(): # also check for empty stdout_str
+            self.append_output(f"ERROR: Could not list remotes. {stderr_str if stderr_str else 'No remotes found or error.'}")
+            # If there was an error, the _process_git_command_results will log it as it's reconnected.
+            # We should also ensure the original command's output (even if error) is processed once.
+            # Calling it directly here might lead to double processing if an error occurred.
+            # The generic handler is connected, so it will be called by the executor.
+            return
+
+        remotes = stdout_str.strip().split('\n')
+        # Filter out empty lines just in case
+        remotes = [r for r in remotes if r.strip()]
+
+        if not remotes:
+            self.append_output("No remotes found to remove.")
+            # The generic handler will process the (empty) stdout from 'git remote'
+            return
+
+        remote_name, ok = QInputDialog.getItem(self, "Remove Remote", "Select remote to remove:", remotes, 0, False)
+
+        if ok and remote_name:
+            self.append_output(f"\n>>> git remote remove {remote_name}")
+            # The _process_git_command_results is already connected to handle the output of this new command.
+            self.git_executor.execute_command(self.current_repo_path, ["remote", "remove", remote_name])
+        elif ok:
+            self.append_output("Remove remote operation cancelled: No remote selected.")
+        else:
+            self.append_output("Remove remote operation cancelled.")
+        # If we didn't issue a new command, the original 'git remote' output has been handled by
+        # the reconnected _process_git_command_results.
+        # If we did issue 'git remote remove', its output will be handled.
+
+    def on_start_feature_click(self):
+        if not self._check_repo_selected():
+            return
+
+        feature_name, ok = QInputDialog.getText(self, "Start New Feature", "Enter feature name (e.g., my-new-feature):")
+        if ok and feature_name.strip():
+            actual_feature_name = feature_name.strip()
+            branch_name = f"feature/{actual_feature_name}"
+
+            # Assuming 'develop' is the base branch for features.
+            # Consider making this configurable in a future step.
+            develop_branch = "develop"
+
+            self.append_output(f"\nAttempting to start new feature: {branch_name} from {develop_branch}")
+
+            commands = [
+                ["checkout", develop_branch],
+                ["pull"], # Pull latest changes on develop
+                ["checkout", "-b", branch_name, develop_branch]
+            ]
+
+            self.run_command_sequence(
+                commands,
+                success_cb=lambda: self.append_output(f"Successfully created and checked out feature branch: {branch_name}"),
+                failure_cb=lambda stderr, exit_code: self.append_output(f"ERROR starting feature {branch_name}: {stderr} (Code: {exit_code})")
+            )
+        elif ok:
+            self.append_output("Feature name cannot be empty. Operation cancelled.")
+        else:
+            self.append_output("Start new feature operation cancelled.")
+
+    def on_finish_feature_click(self):
+        if not self._check_repo_selected():
+            return
+
+        feature_branch_name, ok = QInputDialog.getText(self, "Finish Feature", "Enter full feature branch name to finish (e.g., feature/my-new-feature):")
+
+        if ok and feature_branch_name.strip():
+            actual_feature_branch = feature_branch_name.strip()
+
+            if not actual_feature_branch.startswith("feature/"):
+                self.append_output("ERROR: Feature branch name should start with 'feature/'. Operation cancelled.")
+                return
+
+            # Assuming 'develop' is the target branch and 'origin' for push.
+            develop_branch = "develop"
+            remote_name = "origin"
+
+            self.append_output(f"\nAttempting to finish feature: {actual_feature_branch} into {develop_branch}")
+
+            commands = [
+                ["checkout", develop_branch],
+                ["pull", remote_name, develop_branch], # Pull latest changes on develop
+                ["merge", "--no-ff", actual_feature_branch],
+                ["branch", "-d", actual_feature_branch],
+                ["push", remote_name, develop_branch] # Push develop branch after merge
+            ]
+
+            self.run_command_sequence(
+                commands,
+                success_cb=lambda: self.append_output(f"Successfully finished feature {actual_feature_branch} and merged into {develop_branch}."),
+                failure_cb=lambda stderr, exit_code: self.append_output(f"ERROR finishing feature {actual_feature_branch}: {stderr} (Code: {exit_code})\n"
+                                                                      "This could be due to merge conflicts or other issues. Please check Git status and resolve manually if needed.")
+            )
+        elif ok:
+            self.append_output("Feature branch name cannot be empty. Operation cancelled.")
+        else:
+            self.append_output("Finish feature operation cancelled.")
+
+    def on_start_release_click(self):
+        if not self._check_repo_selected():
+            return
+
+        release_version, ok = QInputDialog.getText(self, "Start New Release", "Enter release version (e.g., 1.0.0):")
+        if ok and release_version.strip():
+            actual_release_version = release_version.strip()
+            branch_name = f"release/{actual_release_version}"
+
+            # Assuming 'develop' is the base branch for releases.
+            develop_branch = "develop"
+
+            self.append_output(f"\nAttempting to start new release: {branch_name} from {develop_branch}")
+
+            commands = [
+                ["checkout", develop_branch],
+                ["pull"], # Pull latest changes on develop
+                ["checkout", "-b", branch_name, develop_branch]
+            ]
+
+            self.run_command_sequence(
+                commands,
+                success_cb=lambda: self.append_output(f"Successfully created and checked out release branch: {branch_name}"),
+                failure_cb=lambda stderr, exit_code: self.append_output(f"ERROR starting release {branch_name}: {stderr} (Code: {exit_code})")
+            )
+        elif ok:
+            self.append_output("Release version cannot be empty. Operation cancelled.")
+        else:
+            self.append_output("Start new release operation cancelled.")
+
+    def on_finish_release_click(self):
+        if not self._check_repo_selected():
+            return
+
+        release_version, ok = QInputDialog.getText(self, "Finish Release", "Enter release version to finish (e.g., 1.0.0):")
+
+        if ok and release_version.strip():
+            actual_release_version = release_version.strip()
+            release_branch_name = f"release/{actual_release_version}"
+            tag_name = f"v{actual_release_version}" # Tag with a 'v' prefix
+
+            # Assumptions for branch names and remote
+            master_branch = "master" # Or "main" # TODO: Make configurable or detect
+            develop_branch = "develop"
+            remote_name = "origin"
+
+            self.append_output(f"\nAttempting to finish release: {release_branch_name}")
+
+            commands = [
+                ["checkout", master_branch],
+                ["pull", remote_name, master_branch],
+                ["merge", "--no-ff", release_branch_name],
+                ["tag", "-a", tag_name, "-m", f"Tagging version {actual_release_version}"],
+                ["checkout", develop_branch],
+                ["pull", remote_name, develop_branch],
+                ["merge", "--no-ff", release_branch_name],
+                ["branch", "-d", release_branch_name],
+                # Consolidated push command:
+                ["push", remote_name, master_branch, develop_branch, tag_name] # Pushing specific tag
+            ]
+
+            self.run_command_sequence(
+                commands,
+                success_cb=lambda: self.append_output(f"Successfully finished release {release_branch_name}.\n"
+                                                      f"- Merged into {master_branch} and {develop_branch}.\n"
+                                                      f"- Tagged as {tag_name}.\n"
+                                                      f"- Deleted local release branch.\n"
+                                                      f"- Pushed {master_branch}, {develop_branch}, and tag {tag_name} to {remote_name}."),
+                failure_cb=lambda stderr, exit_code: self.append_output(
+                    f"ERROR finishing release {release_branch_name}: {stderr} (Code: {exit_code})\n"
+                    "This could be due to merge conflicts, tagging issues, or other problems. "
+                    "Please check Git status and resolve manually if needed. "
+                    "The release process might be partially complete.")
+            )
+        elif ok:
+            self.append_output("Release version cannot be empty. Operation cancelled.")
+        else:
+            self.append_output("Finish release operation cancelled.")
 
     # RENAMED METHOD
     def _process_git_command_results(self, stdout_str: str, stderr_str: str, exit_code: int):
@@ -596,6 +862,33 @@ class MainWindow(QMainWindow):
 # (The actual dialog class definitions are here in the real file)
 # I'm omitting them for brevity in this overwrite block, assuming they are correct from previous steps.
 # If they also need restoration, they'd be included in full.
+
+class AddRemoteDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Add New Remote")
+        layout = QVBoxLayout(self)
+
+        layout.addWidget(QLabel("Remote Name:"))
+        self.name_edit = QLineEdit()
+        layout.addWidget(self.name_edit)
+
+        layout.addWidget(QLabel("Remote URL:"))
+        self.url_edit = QLineEdit()
+        layout.addWidget(self.url_edit)
+
+        buttons_layout = QHBoxLayout()
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(self.accept)
+        cancel_button = QPushButton("Cancel")
+        cancel_button.clicked.connect(self.reject)
+        buttons_layout.addStretch()
+        buttons_layout.addWidget(ok_button)
+        buttons_layout.addWidget(cancel_button)
+        layout.addLayout(buttons_layout)
+
+    def get_values(self):
+        return self.name_edit.text().strip(), self.url_edit.text().strip()
 
 class InteractiveRebaseOptionsDialog(QDialog):
     """Dialog to get the base for an interactive rebase."""
