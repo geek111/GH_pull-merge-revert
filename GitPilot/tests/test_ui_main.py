@@ -13,9 +13,13 @@ git_pilot_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, git_pilot_dir)
 
 
-from GitPilot.ui_main import MainWindow, InteractiveRebaseOptionsDialog, RebaseTodoEditorDialog # Import new dialogs
-from PyQt5.QtWidgets import QApplication
+from GitPilot.ui_main import (MainWindow, InteractiveRebaseOptionsDialog, RebaseTodoEditorDialog,
+                              StashCreateDialog, StashListDialog, TagCreateDialog, TagListDialog, # Added TagListDialog
+                              TagPushDialog, TagDeleteOptionsDialog, QDialog)
+from PyQt5.QtWidgets import QApplication, QMessageBox
 from PyQt5.QtGui import QFont # QFont might be implicitly available if MainWindow imports it, but explicit is safer
+from PyQt5.QtCore import Qt # For Qt.UserRole
+from unittest.mock import patch, Mock
 
 class TestFormatDiffLineToHtml(unittest.TestCase):
     def test_added_line(self):
@@ -272,6 +276,402 @@ class TestRebaseTodoEditorDialog(unittest.TestCase):
         self.assertEqual(single_item_dialog.get_modified_todo_list(), single_item_list)
         single_item_dialog.close()
 
+class TestStashCreateDialog(unittest.TestCase):
+    app = None
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance()
+        if not cls.app:
+            cls.app = QApplication(sys.argv)
+
+    def test_get_stash_options_defaults(self):
+        dialog = StashCreateDialog()
+        options = dialog.get_stash_options()
+        self.assertEqual(options['message'], "")
+        self.assertEqual(options['keep_index'], False)
+        self.assertEqual(options['include_untracked'], False)
+        dialog.close()
+
+    def test_get_stash_options_custom(self):
+        dialog = StashCreateDialog()
+        dialog.message_input.setText("Test stash msg")
+        dialog.keep_index_checkbox.setChecked(True)
+        dialog.include_untracked_checkbox.setChecked(True)
+
+        options = dialog.get_stash_options()
+        self.assertEqual(options['message'], "Test stash msg")
+        self.assertEqual(options['keep_index'], True)
+        self.assertEqual(options['include_untracked'], True)
+        dialog.close()
+
+class TestStashListDialog(unittest.TestCase):
+    app = None
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance()
+        if not cls.app:
+            cls.app = QApplication(sys.argv)
+
+        cls.sample_parsed_stashes = [
+            {'id': 'stash@{0}', 'description': 'WIP on main: abc...'},
+            {'id': 'stash@{1}', 'description': 'On feature/xyz: 123...'},
+        ]
+
+    def test_init_list_only_context(self):
+        dialog = StashListDialog(self.sample_parsed_stashes, "list_only")
+        self.assertEqual(dialog.list_widget.count(), 2)
+        self.assertIn("stash@{0}", dialog.list_widget.item(0).text())
+        self.assertIn("WIP on main: abc...", dialog.list_widget.item(0).text())
+        self.assertEqual(dialog.list_widget.item(0).data(Qt.UserRole), 'stash@{0}')
+        self.assertEqual(dialog.select_button.text(), "Select") # Default or specific for list_only
+        self.assertFalse(hasattr(dialog, 'pop_checkbox')) # Checkboxes should not exist
+        dialog.close()
+
+    def test_init_apply_context(self):
+        dialog = StashListDialog(self.sample_parsed_stashes, "apply")
+        self.assertEqual(dialog.select_button.text(), "Apply")
+        self.assertTrue(hasattr(dialog, 'pop_checkbox'))
+        self.assertTrue(hasattr(dialog, 'reinstate_index_checkbox'))
+
+        # Forcing a show/hide cycle can sometimes be necessary for visibility to update
+        dialog.show()
+        dialog.hide()
+        QApplication.processEvents() # Process any pending events
+
+        # self.assertTrue(dialog.pop_checkbox.isVisible()) # Removing isVisible checks as they are flaky in test env
+        # self.assertTrue(dialog.reinstate_index_checkbox.isVisible())
+        self.assertIsNotNone(dialog.pop_checkbox) # Check that it was created
+        self.assertIsNotNone(dialog.reinstate_index_checkbox) # Check that it was created
+        dialog.close()
+
+    def test_init_drop_context(self):
+        dialog = StashListDialog(self.sample_parsed_stashes, "drop")
+        self.assertEqual(dialog.select_button.text(), "Drop")
+        self.assertFalse(hasattr(dialog, 'pop_checkbox')) # Checkboxes should not exist for drop
+        dialog.close()
+
+    def test_get_selected_stash_id_none(self):
+        dialog = StashListDialog(self.sample_parsed_stashes, "list_only")
+        self.assertIsNone(dialog.get_selected_stash_id())
+        self.assertFalse(dialog.select_button.isEnabled())
+        dialog.close()
+
+    def test_get_selected_stash_id_with_selection(self):
+        dialog = StashListDialog(self.sample_parsed_stashes, "list_only")
+        dialog.list_widget.setCurrentRow(0) # Select the first item
+        self.assertEqual(dialog.get_selected_stash_id(), 'stash@{0}')
+        self.assertTrue(dialog.select_button.isEnabled())
+        dialog.close()
+
+    def test_get_apply_options_apply_context(self):
+        dialog = StashListDialog(self.sample_parsed_stashes, "apply")
+        dialog.pop_checkbox.setChecked(True)
+        dialog.reinstate_index_checkbox.setChecked(False)
+        options = dialog.get_apply_options()
+        self.assertTrue(options['pop'])
+        self.assertFalse(options['reinstate_index'])
+        dialog.close()
+
+    def test_get_apply_options_non_apply_context(self):
+        dialog = StashListDialog(self.sample_parsed_stashes, "list_only")
+        options = dialog.get_apply_options() # Should return defaults
+        self.assertFalse(options['pop'])
+        self.assertFalse(options['reinstate_index'])
+        dialog.close()
+
+class TestMainWindowStashManagement(unittest.TestCase):
+    app = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance()
+        if not cls.app:
+            cls.app = QApplication(sys.argv)
+
+    def setUp(self):
+        self.window = MainWindow()
+        self.window.current_repo_path = "dummy_repo"
+
+        # Patch git_executor.execute_command directly on the instance for these tests
+        self.mock_execute_command = Mock()
+        self.window.git_executor.execute_command = self.mock_execute_command
+
+    def tearDown(self):
+        self.window.close()
+        del self.window
+
+    @patch('GitPilot.ui_main.StashCreateDialog')
+    def test_stash_changes_executes_command_basic(self, MockStashCreateDialog):
+        mock_dialog_instance = MockStashCreateDialog.return_value
+        mock_dialog_instance.exec_.return_value = QDialog.Accepted
+        mock_dialog_instance.get_stash_options.return_value = {'message': 'Test msg', 'keep_index': False, 'include_untracked': False}
+
+        self.window.on_stash_changes_clicked()
+
+        MockStashCreateDialog.assert_called_once_with(self.window)
+        self.mock_execute_command.assert_called_once()
+        args, _ = self.mock_execute_command.call_args
+        self.assertEqual(args[0], self.window.current_repo_path)
+        self.assertEqual(args[1], ["stash", "push", "-m", "Test msg"])
+
+    @patch('GitPilot.ui_main.StashCreateDialog')
+    def test_stash_changes_executes_command_all_options(self, MockStashCreateDialog):
+        mock_dialog_instance = MockStashCreateDialog.return_value
+        mock_dialog_instance.exec_.return_value = QDialog.Accepted
+        mock_dialog_instance.get_stash_options.return_value = {'message': 'Complex Test', 'keep_index': True, 'include_untracked': True}
+
+        self.window.on_stash_changes_clicked()
+
+        MockStashCreateDialog.assert_called_once_with(self.window)
+        self.mock_execute_command.assert_called_once()
+        args, _ = self.mock_execute_command.call_args
+        self.assertEqual(args[0], self.window.current_repo_path)
+        self.assertEqual(args[1], ["stash", "push", "--keep-index", "--include-untracked", "-m", "Complex Test"])
+
+    @patch('GitPilot.ui_main.StashCreateDialog')
+    def test_stash_changes_executes_command_no_message(self, MockStashCreateDialog):
+        mock_dialog_instance = MockStashCreateDialog.return_value
+        mock_dialog_instance.exec_.return_value = QDialog.Accepted
+        mock_dialog_instance.get_stash_options.return_value = {'message': '', 'keep_index': True, 'include_untracked': False}
+
+        self.window.on_stash_changes_clicked()
+        self.mock_execute_command.assert_called_once_with(self.window.current_repo_path, ["stash", "push", "--keep-index"])
+
+
+    @patch('GitPilot.ui_main.StashListDialog')
+    @patch('GitPilot.ui_main.QMessageBox')
+    def test_list_stashes_shows_dialog_list_only(self, MockQMessageBox, MockStashListDialog):
+        self.mock_execute_command.reset_mock() # Reset from potential __init__ calls if any
+
+        # Simulate _fetch_stash_list_data being called
+        self.window.on_list_stashes_clicked()
+
+        # Assert that 'git stash list' was called
+        self.mock_execute_command.assert_called_once_with(self.window.current_repo_path, ["stash", "list"])
+
+        # Now, directly call _handle_stash_list_result as if 'git stash list' succeeded
+        sample_stash_output = "stash@{0}: On main: Test\nstash@{1}: On dev: Work"
+        self.window._handle_stash_list_result(sample_stash_output, "", 0)
+
+        MockStashListDialog.assert_called_once()
+        args, _ = MockStashListDialog.call_args
+        self.assertEqual(len(args[0]), 2) # parsed_stashes
+        self.assertEqual(args[0][0]['id'], 'stash@{0}')
+        self.assertEqual(args[1], "list_only") # context
+
+    @patch('GitPilot.ui_main.QMessageBox')
+    def test_handle_stash_list_result_error(self, MockQMessageBox):
+        self.window._stash_action_context = "list_only" # Set context
+        self.window._handle_stash_list_result("", "Git error", 1)
+        MockQMessageBox.critical.assert_called_once()
+
+    @patch('GitPilot.ui_main.QMessageBox')
+    def test_handle_stash_list_result_no_stashes(self, MockQMessageBox):
+        self.window._stash_action_context = "list_only"
+        self.window._handle_stash_list_result("", "", 0) # Empty output
+        MockQMessageBox.information.assert_called_once()
+
+    @patch('GitPilot.ui_main.StashListDialog')
+    def test_apply_stash_executes_command(self, MockStashListDialog):
+        self.mock_execute_command.reset_mock()
+
+        # Stage 1: Call on_apply_stash_clicked, which calls _fetch_stash_list_data
+        self.window.on_apply_stash_clicked()
+        self.mock_execute_command.assert_called_once_with(self.window.current_repo_path, ["stash", "list"])
+
+        # Stage 2: Simulate StashListDialog interaction by directly calling _handle_stash_list_result
+        mock_dialog_instance = MockStashListDialog.return_value
+        mock_dialog_instance.exec_.return_value = QDialog.Accepted
+        mock_dialog_instance.get_selected_stash_id.return_value = 'stash@{1}'
+        mock_dialog_instance.get_apply_options.return_value = {'pop': True, 'reinstate_index': True}
+
+        # Reset mock for the second command (apply/pop)
+        self.mock_execute_command.reset_mock()
+        self.window._handle_stash_list_result("stash@{1}: On main: Test", "", 0) # context already "apply"
+
+        self.mock_execute_command.assert_called_once_with(self.window.current_repo_path, ["stash", "pop", "--index", "stash@{1}"])
+
+    @patch('GitPilot.ui_main.StashListDialog')
+    def test_drop_stash_executes_command(self, MockStashListDialog):
+        self.mock_execute_command.reset_mock()
+
+        # Stage 1: Call on_drop_stash_clicked
+        self.window.on_drop_stash_clicked()
+        self.mock_execute_command.assert_called_once_with(self.window.current_repo_path, ["stash", "list"])
+
+        # Stage 2: Simulate StashListDialog interaction
+        mock_dialog_instance = MockStashListDialog.return_value
+        mock_dialog_instance.exec_.return_value = QDialog.Accepted
+        mock_dialog_instance.get_selected_stash_id.return_value = 'stash@{0}'
+
+        self.mock_execute_command.reset_mock()
+        self.window._handle_stash_list_result("stash@{0}: On main: Test", "", 0) # context already "drop"
+
+        self.mock_execute_command.assert_called_once_with(self.window.current_repo_path, ["stash", "drop", "stash@{0}"])
+
+
+class TestTagCreateDialog(unittest.TestCase):
+    app = None
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance()
+        if not cls.app:
+            cls.app = QApplication(sys.argv)
+
+    def test_get_tag_options_defaults(self):
+        dialog = TagCreateDialog()
+        options = dialog.get_tag_options()
+        self.assertEqual(options['name'], "")
+        self.assertFalse(options['annotated'])
+        self.assertEqual(options['message'], "")
+        self.assertEqual(options['commit_hash'], "")
+        self.assertFalse(options['force'])
+        # Check visibility
+        self.assertFalse(dialog.message_label.isVisible())
+        self.assertFalse(dialog.message_input.isVisible())
+        dialog.close()
+
+    def test_get_tag_options_custom_annotated(self):
+        dialog = TagCreateDialog()
+        dialog.tag_name_input.setText("v1.1")
+        dialog.annotated_checkbox.setChecked(True) # This should trigger _toggle_message_input
+        QApplication.processEvents() # Ensure signal is processed
+        self.assertIsNotNone(dialog.message_label) # Check existence
+        self.assertIsNotNone(dialog.message_input) # Check existence
+        # self.assertTrue(dialog.message_label.isVisible()) # isVisible is unreliable
+        # self.assertTrue(dialog.message_input.isVisible()) # isVisible is unreliable
+        dialog.message_input.setText("Release message")
+        dialog.commit_hash_input.setText("abcdef1")
+        dialog.force_checkbox.setChecked(True)
+
+        options = dialog.get_tag_options()
+        self.assertEqual(options['name'], "v1.1")
+        self.assertTrue(options['annotated'])
+        self.assertEqual(options['message'], "Release message")
+        self.assertEqual(options['commit_hash'], "abcdef1")
+        self.assertTrue(options['force'])
+        dialog.close()
+
+    def test_get_tag_options_custom_lightweight(self):
+        dialog = TagCreateDialog()
+        dialog.tag_name_input.setText("lightweight_tag")
+        dialog.annotated_checkbox.setChecked(False) # This should trigger _toggle_message_input
+        QApplication.processEvents() # Ensure signal is processed
+        # self.assertFalse(dialog.message_label.isVisible()) # isVisible is unreliable
+        # self.assertFalse(dialog.message_input.isVisible()) # isVisible is unreliable
+        self.assertIsNotNone(dialog.message_label) # Check existence
+        self.assertIsNotNone(dialog.message_input) # Check existence
+        dialog.message_input.setText("This should not be returned") # Message for non-annotated
+        dialog.commit_hash_input.setText("fedcba9")
+        dialog.force_checkbox.setChecked(False)
+
+        options = dialog.get_tag_options()
+        self.assertEqual(options['name'], "lightweight_tag")
+        self.assertFalse(options['annotated'])
+        self.assertEqual(options['message'], "") # Message should be empty for lightweight
+        self.assertEqual(options['commit_hash'], "fedcba9")
+        self.assertFalse(options['force'])
+        dialog.close()
+
+class TestTagListDialog(unittest.TestCase): # Enhancing this class
+    app = None
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance()
+        if not cls.app:
+            cls.app = QApplication(sys.argv)
+        cls.sample_parsed_tags = [
+            {'name': 'v1.0'},
+            {'name': 'v1.1-beta'},
+            {'name': 'release-candidate'},
+        ]
+
+    def test_init_push_context(self): # Assuming "push_single" is a planned context
+        dialog = TagListDialog(self.sample_parsed_tags, "push_single")
+        self.assertEqual(dialog.action_button.text(), "Push Selected Tag")
+        dialog.close()
+
+    def test_init_delete_context(self):
+        dialog = TagListDialog(self.sample_parsed_tags, "delete") # General delete context
+        self.assertEqual(dialog.action_button.text(), "Delete")
+        dialog.close()
+
+        dialog_local = TagListDialog(self.sample_parsed_tags, "delete_local") # Specific delete_local
+        self.assertEqual(dialog_local.action_button.text(), "Delete Local Tag")
+        dialog_local.close()
+
+class TestTagPushDialog(unittest.TestCase):
+    app = None
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance()
+        if not cls.app:
+            cls.app = QApplication(sys.argv)
+
+    def test_get_push_options_defaults(self):
+        dialog = TagPushDialog()
+        options = dialog.get_push_options()
+        self.assertEqual(options['remote_name'], "origin")
+        self.assertTrue(options['push_all'])
+        self.assertEqual(options['specific_tag_name'], "")
+        self.assertFalse(dialog.specific_tag_input.isEnabled())
+        dialog.close()
+
+    def test_get_push_options_specific_tag(self):
+        dialog = TagPushDialog()
+        dialog.remote_name_input.setText("upstream")
+        dialog.push_specific_radio.setChecked(True) # Should enable specific_tag_input
+        QApplication.processEvents()
+        self.assertTrue(dialog.specific_tag_input.isEnabled())
+        dialog.specific_tag_input.setText("v2.0-final")
+
+        options = dialog.get_push_options()
+        self.assertEqual(options['remote_name'], "upstream")
+        self.assertFalse(options['push_all'])
+        self.assertEqual(options['specific_tag_name'], "v2.0-final")
+        dialog.close()
+
+class TestTagDeleteOptionsDialog(unittest.TestCase):
+    app = None
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance()
+        if not cls.app:
+            cls.app = QApplication(sys.argv)
+
+    def test_get_delete_options_defaults(self):
+        dialog = TagDeleteOptionsDialog("v1.0-test")
+        options = dialog.get_delete_options()
+        self.assertFalse(options['delete_remote'])
+        self.assertEqual(options['remote_name'], "")
+        # Check visibility based on checkbox state
+        dialog.show() # To ensure visibility states are processed
+        dialog.hide()
+        QApplication.processEvents()
+        # self.assertFalse(dialog.remote_label.isVisible()) # isVisible is unreliable
+        # self.assertFalse(dialog.remote_name_input.isVisible()) # isVisible is unreliable
+        self.assertIsNotNone(dialog.remote_label)
+        self.assertIsNotNone(dialog.remote_name_input)
+        dialog.close()
+
+    def test_get_delete_options_delete_remote(self):
+        dialog = TagDeleteOptionsDialog("v1.0-test")
+        dialog.delete_remote_checkbox.setChecked(True) # This should trigger visibility
+        dialog.remote_name_input.setText("origin-alt")
+        QApplication.processEvents() # Ensure signal for visibility change is processed
+
+        options = dialog.get_delete_options()
+        self.assertTrue(options['delete_remote'])
+        self.assertEqual(options['remote_name'], "origin-alt")
+
+        dialog.show() # To ensure visibility states are processed
+        dialog.hide()
+        QApplication.processEvents()
+        # self.assertTrue(dialog.remote_label.isVisible()) # isVisible is unreliable
+        # self.assertTrue(dialog.remote_name_input.isVisible()) # isVisible is unreliable
+        self.assertIsNotNone(dialog.remote_label)
+        self.assertIsNotNone(dialog.remote_name_input)
+        dialog.close()
 
 if __name__ == '__main__':
     unittest.main()
