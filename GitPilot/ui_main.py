@@ -21,11 +21,11 @@ from git_utils import GitExecutor
 
 # Assuming github_utils.py is in the same directory (GitPilot)
 try:
-    from .github_utils import GitHubManager, ConnectionError as GitHubConnectionError
+    from .github_utils import GitHubManager
 except ImportError:
     # Fallback for cases where the script might be run directly and '.' imports fail
     # This might happen if ui_main.py is run as the top-level script for testing/dev
-    from github_utils import GitHubManager, ConnectionError as GitHubConnectionError
+    from github_utils import GitHubManager
 
 
 class BranchFromCommitDialog(QDialog):
@@ -239,7 +239,7 @@ class MainWindow(QMainWindow):
         try:
             github_manager = GitHubManager(token=self.github_token)
             self.append_output("GitHubManager initialized successfully.")
-        except GitHubConnectionError as e: # Catch the specific connection error
+        except ConnectionError as e: # Catch the specific connection error
             self.append_output(f"Failed to initialize GitHubManager: {e}")
             QMessageBox.critical(self, "GitHub Connection Error", f"Could not connect to GitHub. Please check your token and network connection.\nDetails: {e}")
             return
@@ -988,7 +988,7 @@ class BranchManagementDialog(QDialog):
             else:
                 self.status_label.setText("No repositories found or accessible with the current token.")
                 QMessageBox.information(self, "No Repositories", "No repositories found or accessible with the current token.")
-        except GitHubConnectionError as e: # Catch specific connection error from github_utils
+        except ConnectionError as e: # Catch specific connection error from github_utils
             self.status_label.setText(f"Error connecting to GitHub: {e}")
             QMessageBox.critical(self, "GitHub Connection Error", f"Could not connect to GitHub. Please check your token and network connection.\nDetails: {e}")
         except Exception as e: # Generic catch-all
@@ -1021,7 +1021,7 @@ class BranchManagementDialog(QDialog):
                 self.status_label.setText(f"No branches found for {selected_repo_full_name} or error during fetch.")
                 # Optionally show a QMessageBox if no branches are found
                 # QMessageBox.information(self, "No Branches", f"No branches found for {selected_repo_full_name}.")
-        except GitHubConnectionError as e: # Catch specific connection error from github_utils
+        except ConnectionError as e: # Catch specific connection error from github_utils
             self.status_label.setText(f"Error connecting to GitHub: {e}")
             QMessageBox.critical(self, "GitHub Connection Error", f"Could not connect to GitHub while fetching branches.\nDetails: {e}")
         except Exception as e: # Generic catch-all
