@@ -13,8 +13,14 @@ git_pilot_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.insert(0, git_pilot_dir)
 
 
-from GitPilot.ui_main import MainWindow, InteractiveRebaseOptionsDialog, RebaseTodoEditorDialog # Import new dialogs
+from GitPilot.ui_main import (
+    MainWindow,
+    InteractiveRebaseOptionsDialog,
+    RebaseTodoEditorDialog,
+    BranchManagerDialog,
+)
 from PyQt5.QtWidgets import QApplication
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont # QFont might be implicitly available if MainWindow imports it, but explicit is safer
 
 class TestFormatDiffLineToHtml(unittest.TestCase):
@@ -271,6 +277,26 @@ class TestRebaseTodoEditorDialog(unittest.TestCase):
         single_item_dialog._move_commit_down(0)
         self.assertEqual(single_item_dialog.get_modified_todo_list(), single_item_list)
         single_item_dialog.close()
+
+
+class TestBranchManagerDialog(unittest.TestCase):
+    app = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance()
+        if not cls.app:
+            cls.app = QApplication(sys.argv)
+
+    def test_select_highlighted_rows(self):
+        dialog = BranchManagerDialog(["b1", "b2", "b3"])
+        dialog.list_widget.item(0).setSelected(True)
+        dialog.list_widget.item(2).setSelected(True)
+        dialog.select_highlighted_rows()
+        states = [dialog.list_widget.item(i).checkState() for i in range(3)]
+        self.assertEqual(states, [Qt.Checked, Qt.Unchecked, Qt.Checked])
+        self.assertEqual(dialog.get_checked_branches(), ["b1", "b3"])
+        dialog.close()
 
 
 if __name__ == '__main__':

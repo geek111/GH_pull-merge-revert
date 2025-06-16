@@ -5,9 +5,9 @@ interface for the GitPilot application, including layouts, widgets, and signal c
 """
 import sys
 from PyQt5.QtWidgets import (QMainWindow, QApplication, QWidget,
-                             QVBoxLayout, QHBoxLayout, QTextEdit, QMessageBox, # Added QMessageBox
+                             QVBoxLayout, QHBoxLayout, QTextEdit, QMessageBox,
                              QPushButton, QLineEdit, QFileDialog, QLabel, QInputDialog, QDialog,
-                             QScrollArea, QComboBox) # Added QScrollArea, QComboBox (QWidget is base for QDialog)
+                             QScrollArea, QComboBox, QListWidget, QListWidgetItem)
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QTextCharFormat, QFont # Added for future use
 import re
@@ -38,6 +38,51 @@ class BranchFromCommitDialog(QDialog):
 
     def get_values(self):
         return self.prefix_edit.text().strip(), self.hash_edit.text().strip()
+
+
+class BranchManagerDialog(QDialog):
+    """Dialog to manage branches with checkbox selection."""
+
+    def __init__(self, branches, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Branch Manager")
+        self.setMinimumSize(400, 300)
+
+        layout = QVBoxLayout(self)
+
+        self.list_widget = QListWidget()
+        self.list_widget.setSelectionMode(QListWidget.MultiSelection)
+        for branch in branches:
+            item = QListWidgetItem(branch)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            item.setCheckState(Qt.Unchecked)
+            self.list_widget.addItem(item)
+        layout.addWidget(self.list_widget)
+
+        btn_layout = QHBoxLayout()
+        self.select_highlighted_btn = QPushButton("Select Highlighted")
+        self.select_highlighted_btn.clicked.connect(self.select_highlighted_rows)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        btn_layout.addWidget(self.select_highlighted_btn)
+        btn_layout.addStretch()
+        btn_layout.addWidget(close_btn)
+        layout.addLayout(btn_layout)
+
+    def select_highlighted_rows(self):
+        """Mark checkboxes for currently selected rows."""
+        for i in range(self.list_widget.count()):
+            item = self.list_widget.item(i)
+            if item.isSelected():
+                item.setCheckState(Qt.Checked)
+            else:
+                item.setCheckState(Qt.Unchecked)
+
+    def get_checked_branches(self):
+        """Return a list of checked branch names."""
+        return [self.list_widget.item(i).text()
+                for i in range(self.list_widget.count())
+                if self.list_widget.item(i).checkState() == Qt.Checked]
 
 class MainWindow(QMainWindow):
     """Main application window for GitPilot.
@@ -731,9 +776,25 @@ class MainWindow(QMainWindow):
             self.git_executor.execute_command(self.current_repo_path, ["log", "--graph", "--pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset'", "--abbrev-commit", "--all"])
 
     def on_branch_click(self):
-        if self._check_repo_selected():
-            self.append_output("\n>>> git branch -vv")
-            self.git_executor.execute_command(self.current_repo_path, ["branch", "-vv"])
+        if not self._check_repo_selected():
+            return
+        try:
+            self.git_executor.command_finished.disconnect(self._process_git_command_results)
+        except TypeError:
+            pass
+        self.git_executor.command_finished.connect(self._show_branch_manager)
+        self.append_output("\n>>> git branch --format=%(refname:strip=2)")
+        self.git_executor.execute_command(self.current_repo_path, ["branch", "--format=%(refname:strip=2)"])
+
+    def _show_branch_manager(self, stdout_str, stderr_str, exit_code):
+        self.git_executor.command_finished.disconnect(self._show_branch_manager)
+        self.git_executor.command_finished.connect(self._process_git_command_results)
+        if exit_code != 0:
+            self.append_output(f"ERROR listing branches: {stderr_str}")
+            return
+        branches = [line.strip().lstrip('*').strip() for line in stdout_str.splitlines() if line.strip()]
+        dialog = BranchManagerDialog(branches, self)
+        dialog.exec_()
 
     def on_checkout_click(self):
         if self._check_repo_selected():
