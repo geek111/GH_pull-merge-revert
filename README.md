@@ -28,6 +28,8 @@ available to the token. Choose one from the drop-down and use **Load PRs** to
 fetch open pull requests. You can load previously merged pull requests with
 **Load Merged PRs**. Select the ones you want
 to merge or revert, then click **Merge Selected** or **Revert Selected**.
+Branches can be inspected with **Manage Branches** which opens a window
+listing branch names and their commit dates with filtering options.
 
 The script attempts to merge using the GitHub API and falls back to a local
 `git` merge with a simple conflict strategy if necessary.

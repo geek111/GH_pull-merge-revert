@@ -3,6 +3,7 @@ import json
 import tempfile
 import subprocess
 import webbrowser
+import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox, font
 
@@ -58,6 +59,8 @@ class BulkMerger(tk.Tk):
         btn_open.grid(row=3, column=2, pady=5, sticky=tk.E)
         btn_close = ttk.Button(frm, text="Close Selected", command=self.close_selected)
         btn_close.grid(row=3, column=3, pady=5, sticky=tk.E)
+        btn_branches = ttk.Button(frm, text="Manage Branches", command=self.manage_branches)
+        btn_branches.grid(row=3, column=4, pady=5, sticky=tk.E)
 
         self.pr_canvas = tk.Canvas(frm)
         self.pr_canvas.grid(row=4, column=0, columnspan=3, sticky=tk.NSEW)
@@ -252,6 +255,119 @@ class BulkMerger(tk.Tk):
                     self.log(f"Closed PR #{pr.number}")
                 except GithubException as e:
                     self.log(f"Failed to close PR #{pr.number}: {e.data}")
+
+    def manage_branches(self):
+        token = self.token_var.get()
+        repo_name = self.repo_var.get()
+        if not token or not repo_name:
+            messagebox.showerror("Error", "Load repository first")
+            return
+        BranchManager(self, token, repo_name)
+
+
+class BranchManager(tk.Toplevel):
+    def __init__(self, master, token, repo_name):
+        super().__init__(master)
+        self.title("Branch Manager")
+        self.geometry("500x400")
+        self.token = token
+        self.repo_name = repo_name
+        self.branch_vars = {}
+        self.branches = []
+        self.create_widgets()
+        self.load_branches()
+
+    def create_widgets(self):
+        frm = ttk.Frame(self)
+        frm.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        filter_frame = ttk.Frame(frm)
+        filter_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(filter_frame, text="Name filter:").pack(side=tk.LEFT)
+        self.name_filter = ttk.Entry(filter_frame)
+        self.name_filter.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        self.name_filter.bind("<KeyRelease>", lambda e: self.apply_filters())
+        ttk.Label(filter_frame, text="Date after (YYYY-MM-DD):").pack(side=tk.LEFT)
+        self.date_filter = ttk.Entry(filter_frame, width=12)
+        self.date_filter.pack(side=tk.LEFT)
+        self.date_filter.bind("<KeyRelease>", lambda e: self.apply_filters())
+
+        self.tree = ttk.Treeview(
+            frm,
+            columns=("selected", "branch", "date"),
+            show="headings",
+            selectmode="extended",
+        )
+        self.tree.heading("selected", text="")
+        self.tree.heading("branch", text="Branch")
+        self.tree.heading("date", text="Date")
+        self.tree.column("selected", width=30, anchor="center")
+        self.tree.column("branch", width=250)
+        self.tree.column("date", width=150)
+        self.tree.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
+        scroll = ttk.Scrollbar(frm, orient="vertical", command=self.tree.yview)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree.configure(yscrollcommand=scroll.set)
+
+        self.tree.bind("<Button-3>", self.show_context_menu)
+
+        self.menu = tk.Menu(self, tearoff=0)
+        self.menu.add_command(label="Check highlighted", command=self.check_selected)
+        self.menu.add_command(label="Uncheck highlighted", command=self.uncheck_selected)
+
+    def show_context_menu(self, event):
+        self.tree.focus_set()
+        self.menu.tk_popup(event.x_root, event.y_root)
+
+    def load_branches(self):
+        g = Github(self.token, per_page=100)
+        repo = g.get_repo(self.repo_name)
+        self.branches = []
+        for br in repo.get_branches():
+            date = br.commit.commit.author.date.strftime("%Y-%m-%d")
+            self.branches.append((br.name, date))
+        self.apply_filters()
+
+    def apply_filters(self):
+        name_f = self.name_filter.get().lower()
+        date_f = self.date_filter.get().strip()
+        try:
+            date_after = (
+                datetime.datetime.fromisoformat(date_f) if date_f else None
+            )
+        except ValueError:
+            date_after = None
+        self.tree.delete(*self.tree.get_children())
+        for name, date in self.branches:
+            if name_f and name_f not in name.lower():
+                continue
+            if date_after:
+                try:
+                    d = datetime.datetime.fromisoformat(date)
+                except ValueError:
+                    d = None
+                if d and d < date_after:
+                    continue
+            var = self.branch_vars.get(name)
+            if var is None:
+                var = tk.BooleanVar()
+                self.branch_vars[name] = var
+            symbol = "☑" if var.get() else "☐"
+            self.tree.insert("", "end", iid=name, values=(symbol, name, date))
+
+    def check_selected(self):
+        for iid in self.tree.selection():
+            var = self.branch_vars.get(iid)
+            if var:
+                var.set(True)
+                self.tree.set(iid, "selected", "☑")
+
+    def uncheck_selected(self):
+        for iid in self.tree.selection():
+            var = self.branch_vars.get(iid)
+            if var:
+                var.set(False)
+                self.tree.set(iid, "selected", "☐")
 
 
 def main():
