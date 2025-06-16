@@ -4,6 +4,7 @@ import tempfile
 import subprocess
 import webbrowser
 import datetime
+import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, font
 
@@ -12,6 +13,7 @@ from github.GithubException import GithubException
 
 CONFIG_FILE = "config.json"
 CACHE_DIR = "repo_cache"
+BRANCH_CACHE_DIR = "branch_cache"
 
 
 class BulkMerger(tk.Tk):
@@ -269,11 +271,15 @@ class BranchManager(tk.Toplevel):
     def __init__(self, master, token, repo_name):
         super().__init__(master)
         self.title("Branch Manager")
-        self.geometry("500x400")
+        self.geometry("500x450")
         self.token = token
         self.repo_name = repo_name
         self.branch_vars = {}
         self.branches = []
+        os.makedirs(BRANCH_CACHE_DIR, exist_ok=True)
+        self.cache_file = os.path.join(
+            BRANCH_CACHE_DIR, repo_name.replace("/", "_") + ".json"
+        )
         self.create_widgets()
         self.load_branches()
 
@@ -318,20 +324,51 @@ class BranchManager(tk.Toplevel):
         btn_frame = ttk.Frame(frm)
         btn_frame.pack(fill=tk.X, pady=5)
         ttk.Button(btn_frame, text="Delete Checked", command=self.delete_checked).pack(side=tk.RIGHT)
+        self.status_var = tk.StringVar(value="")
+        self.status_label = ttk.Label(frm, textvariable=self.status_var, anchor="w")
+        self.status_label.pack(fill=tk.X)
+
+    def update_status(self, text):
+        self.status_var.set(text)
 
     def show_context_menu(self, event):
         self.tree.focus_set()
         self.menu.tk_popup(event.x_root, event.y_root)
 
     def load_branches(self):
+        self.update_status("Loading cached branches...")
+        self.branches = []
+        if os.path.exists(self.cache_file):
+            try:
+                with open(self.cache_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self.branches = [
+                        (item[0], datetime.datetime.fromisoformat(item[1]))
+                        for item in data
+                    ]
+            except Exception:
+                self.branches = []
+        if self.branches:
+            self.apply_filters()
+        self.update_status("Fetching branches from GitHub...")
+        threading.Thread(target=self.fetch_branches, daemon=True).start()
+
+    def fetch_branches(self):
         g = Github(self.token, per_page=100)
         repo = g.get_repo(self.repo_name)
-        self.branches = []
+        branches = []
         for br in repo.get_branches():
             dt = br.commit.commit.author.date
-            self.branches.append((br.name, dt))
-        self.branches.sort(key=lambda x: x[1], reverse=True)
-        self.apply_filters()
+            branches.append((br.name, dt))
+        branches.sort(key=lambda x: x[1], reverse=True)
+        self.branches = branches
+        try:
+            with open(self.cache_file, "w", encoding="utf-8") as f:
+                json.dump([(name, dt.isoformat()) for name, dt in branches], f)
+        except Exception:
+            pass
+        self.after(0, self.apply_filters)
+        self.after(0, lambda: self.update_status("Branches loaded"))
 
     def apply_filters(self):
         name_f = self.name_filter.get().lower()
@@ -374,6 +411,7 @@ class BranchManager(tk.Toplevel):
         confirm = messagebox.askyesno("Confirm", "Delete checked branches?")
         if not confirm:
             return
+        self.update_status("Deleting branches...")
         g = Github(self.token, per_page=100)
         repo = g.get_repo(self.repo_name)
         to_delete = [name for name, var in self.branch_vars.items() if var.get()]
@@ -385,6 +423,7 @@ class BranchManager(tk.Toplevel):
             except GithubException as e:
                 messagebox.showerror("Error", f"Failed to delete {name}: {e.data}")
         self.load_branches()
+        self.update_status("Branches loaded")
 
 
 def main():
