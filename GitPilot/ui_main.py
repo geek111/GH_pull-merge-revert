@@ -1067,10 +1067,51 @@ class BranchManagementDialog(QDialog):
         select_all_action = context_menu.addAction("Select All")
         deselect_all_action = context_menu.addAction("Deselect All")
 
+        context_menu.addSeparator() # Optional: to group actions
+        check_highlighted_action = context_menu.addAction("Zaznacz Podświetlone Wiersze (Check Highlighted Rows)")
+        check_highlighted_action.triggered.connect(self._check_highlighted_rows)
+
         select_all_action.triggered.connect(self._select_all_branches)
         deselect_all_action.triggered.connect(self._deselect_all_branches)
 
         context_menu.exec_(self.branch_table_widget.mapToGlobal(position)) # Changed here
+
+    def _check_highlighted_rows(self):
+        selection_model = self.branch_table_widget.selectionModel()
+        if not selection_model:
+            # This should ideally not happen if the table exists and is interactable
+            self.status_label.setText("Error: No selection model found.")
+            print("Error: Could not retrieve selection model from the table.")
+            return
+
+        selected_indexes = selection_model.selectedRows() # Gets QModelIndex list for selected rows
+
+        if not selected_indexes:
+            self.status_label.setText("No rows are currently highlighted.")
+            # QMessageBox.information(self, "No Highlighting", "No rows are currently highlighted.") # Optional: if more prominent feedback is desired
+            return
+
+        checked_count = 0
+        for index in selected_indexes:
+            row = index.row()
+            chk_item = self.branch_table_widget.item(row, 0) # Checkbox item is in column 0
+
+            if chk_item and (chk_item.flags() & Qt.ItemIsUserCheckable):
+                if chk_item.checkState() != Qt.Checked:
+                    chk_item.setCheckState(Qt.Checked)
+                    checked_count += 1
+            else:
+                # This case should ideally not happen if rows are populated correctly
+                print(f"Warning: Item at row {row}, column 0 is None or not checkable.")
+
+        if checked_count > 0:
+            self.status_label.setText(f"{checked_count} highlighted row(s) have been checked.")
+        else:
+            # This could mean all highlighted rows were already checked, or no valid items found (less likely)
+            self.status_label.setText("Highlighted rows were already checked or no new rows were checked.")
+
+        # Optionally, print a more detailed log
+        print(f"Action 'Check Highlighted Rows': Processed {len(selected_indexes)} highlighted rows, {checked_count} newly checked.")
 
     def _select_all_branches(self):
         for i in range(self.branch_table_widget.rowCount()): # Changed here
