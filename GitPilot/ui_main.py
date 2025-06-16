@@ -7,16 +7,25 @@ import sys
 from PyQt5.QtWidgets import (QMainWindow, QApplication, QWidget,
                              QVBoxLayout, QHBoxLayout, QTextEdit, QMessageBox, # Added QMessageBox
                              QPushButton, QLineEdit, QFileDialog, QLabel, QInputDialog, QDialog,
-                             QScrollArea, QComboBox) # Added QScrollArea, QComboBox (QWidget is base for QDialog)
+                             QScrollArea, QComboBox, QListWidget, QAbstractItemView) # Added QListWidget, QAbstractItemView
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QTextCharFormat, QFont # Added for future use
 import re
 import html # For escaping HTML characters in diff output
 import tempfile
 import os
+import json # Added for token storage
 import stat # For chmod
 from functools import partial # For connecting signals with arguments
 from git_utils import GitExecutor
+
+# Assuming github_utils.py is in the same directory (GitPilot)
+try:
+    from .github_utils import GitHubManager, ConnectionError as GitHubConnectionError
+except ImportError:
+    # Fallback for cases where the script might be run directly and '.' imports fail
+    # This might happen if ui_main.py is run as the top-level script for testing/dev
+    from github_utils import GitHubManager, ConnectionError as GitHubConnectionError
 
 
 class BranchFromCommitDialog(QDialog):
@@ -51,6 +60,7 @@ class MainWindow(QMainWindow):
         self.setGeometry(100, 100, 900, 700) # x, y, width, height
 
         self.current_repo_path = None
+        self.github_token = None # Added for token storage
         self.git_executor = GitExecutor()
         self.git_executor.command_finished.connect(self._process_git_command_results) # RENAMED
         self._current_diff_staged = False
@@ -140,7 +150,11 @@ class MainWindow(QMainWindow):
 
         self.interactive_rebase_button = QPushButton("Interactive Rebase")
         buttons_group4_layout.addWidget(self.interactive_rebase_button)
+
+        self.manage_github_branches_button = QPushButton("Manage GitHub Branches")
+        buttons_group4_layout.addWidget(self.manage_github_branches_button) # Added here
         main_layout.addLayout(buttons_group4_layout)
+
 
         # Remote Operations Buttons
         remote_ops_layout = QHBoxLayout()
@@ -205,10 +219,39 @@ class MainWindow(QMainWindow):
         self.show_unstaged_diff_button.clicked.connect(self.on_show_unstaged_diff_click)
         self.show_staged_diff_button.clicked.connect(self.on_show_staged_diff_click)
         self.interactive_rebase_button.clicked.connect(self.on_interactive_rebase_start_clicked)
+        self.manage_github_branches_button.clicked.connect(self.on_manage_github_branches_clicked) # Added connection
         # Connect remote ops buttons
 
 
         self.append_output("GitPilot UI Initialized. Select a repository to begin.")
+
+    def on_manage_github_branches_clicked(self):
+        # Step 1: Ensure GitHub token is available
+        if not self.github_token: # Try to load it if not already loaded by a previous action
+            self.github_token = self.ensure_token_is_available()
+
+        if not self.github_token:
+            self.append_output("GitHub token is not available. Cannot open branch manager.")
+            QMessageBox.warning(self, "Token Required", "A GitHub token is required to manage GitHub branches. Please configure it first.")
+            return
+
+        # Step 2: Instantiate GitHubManager
+        try:
+            github_manager = GitHubManager(token=self.github_token)
+            self.append_output("GitHubManager initialized successfully.")
+        except GitHubConnectionError as e: # Catch the specific connection error
+            self.append_output(f"Failed to initialize GitHubManager: {e}")
+            QMessageBox.critical(self, "GitHub Connection Error", f"Could not connect to GitHub. Please check your token and network connection.\nDetails: {e}")
+            return
+        except Exception as e: # Catch any other unexpected errors during instantiation
+            self.append_output(f"An unexpected error occurred while initializing GitHubManager: {e}")
+            QMessageBox.critical(self, "Initialization Error", f"An unexpected error occurred: {e}")
+            return
+
+        # Step 3: Create and show BranchManagementDialog
+        dialog = BranchManagementDialog(github_manager=github_manager, parent=self)
+        dialog.exec_() # Show as a modal dialog
+        self.append_output("Closed GitHub Branch Management dialog.")
 
     def on_list_remotes_click(self):
         if self._check_repo_selected():
@@ -851,6 +894,33 @@ class MainWindow(QMainWindow):
 
         self._run_next_command() # Run next command or call success_cb
 
+    def ensure_token_is_available(self) -> str | None:
+        """Ensures a GitHub token is available, prompting the user if necessary."""
+        if self.github_token:
+            return self.github_token
+
+        loaded_token = load_token()
+        if loaded_token:
+            self.github_token = loaded_token
+            self.append_output("GitHub token loaded from config.")
+            return self.github_token
+
+        self.append_output("GitHub token not found. Please enter your token.")
+        dialog = TokenEntryDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            token = dialog.get_token()
+            if token:
+                self.github_token = token
+                save_token(token)
+                self.append_output("GitHub token saved.")
+                return token
+            else:
+                self.append_output("No token entered. Operation requiring token may fail.")
+                return None
+        else:
+            self.append_output("Token entry cancelled. Operation requiring token may fail.")
+            return None
+
 
 # --- Dialog for Interactive Rebase Options ---
 # (Content of InteractiveRebaseOptionsDialog remains here)
@@ -862,6 +932,153 @@ class MainWindow(QMainWindow):
 # (The actual dialog class definitions are here in the real file)
 # I'm omitting them for brevity in this overwrite block, assuming they are correct from previous steps.
 # If they also need restoration, they'd be included in full.
+
+class BranchManagementDialog(QDialog):
+    def __init__(self, github_manager: GitHubManager, parent=None):
+        super().__init__(parent)
+        self.github_manager = github_manager
+        self.setWindowTitle("GitHub Branch Management")
+        self.setMinimumSize(600, 400)
+
+        self.repos = []
+
+        # Layouts
+        main_layout = QVBoxLayout(self)
+        repo_selection_layout = QHBoxLayout()
+
+        # Widgets
+        self.repo_label = QLabel("Repository:")
+        self.repo_combo = QComboBox()
+        self.repo_combo.setMinimumWidth(250) # Give some space for repo names
+
+        self.load_branches_button = QPushButton("Load Branches")
+        self.load_branches_button.clicked.connect(self._on_load_branches_clicked)
+
+        repo_selection_layout.addWidget(self.repo_label)
+        repo_selection_layout.addWidget(self.repo_combo)
+        repo_selection_layout.addWidget(self.load_branches_button)
+        repo_selection_layout.addStretch()
+
+        self.status_label = QLabel("Select a repository and click 'Load Branches'.")
+        self.status_label.setAlignment(Qt.AlignCenter)
+
+        self.branch_list_widget = QListWidget()
+        self.branch_list_widget.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        # Item checkability will be set when items are added.
+
+        # Add widgets to main layout
+        main_layout.addLayout(repo_selection_layout)
+        main_layout.addWidget(self.status_label)
+        main_layout.addWidget(self.branch_list_widget, 1) #让他占据更多空间
+
+        self.setLayout(main_layout)
+
+        self._populate_repositories()
+
+    def _populate_repositories(self):
+        self.repo_combo.clear()
+        self.status_label.setText("Loading repositories...")
+        QApplication.processEvents() # Ensure UI updates
+        try:
+            # Assuming github_manager is already initialized and token is valid
+            self.repos = self.github_manager.get_repositories()
+            if self.repos:
+                self.repo_combo.addItems(self.repos)
+                self.status_label.setText("Repositories loaded. Select one and load branches.")
+            else:
+                self.status_label.setText("No repositories found or accessible with the current token.")
+                QMessageBox.information(self, "No Repositories", "No repositories found or accessible with the current token.")
+        except GitHubConnectionError as e: # Catch specific connection error from github_utils
+            self.status_label.setText(f"Error connecting to GitHub: {e}")
+            QMessageBox.critical(self, "GitHub Connection Error", f"Could not connect to GitHub. Please check your token and network connection.\nDetails: {e}")
+        except Exception as e: # Generic catch-all
+            self.status_label.setText(f"Error loading repositories: {e}")
+            QMessageBox.warning(self, "Error Loading Repositories", f"An unexpected error occurred while loading repositories: {e}")
+
+
+    def _on_load_branches_clicked(self):
+        selected_repo_full_name = self.repo_combo.currentText()
+        if not selected_repo_full_name:
+            self.status_label.setText("Please select a repository first.")
+            QMessageBox.warning(self, "No Repository Selected", "Please select a repository from the list.")
+            return
+
+        self.branch_list_widget.clear()
+        self.status_label.setText(f"Loading branches for {selected_repo_full_name}...")
+        QApplication.processEvents() # Ensure UI updates before blocking call
+
+        try:
+            branches = self.github_manager.get_branches(selected_repo_full_name)
+            if branches:
+                for branch_info in branches:
+                    item_text = f"{branch_info['name']} (Last commit: {branch_info['last_commit_date']})"
+                    list_item = QListWidgetItem(item_text) # Corrected: QListWidgetItem
+                    list_item.setFlags(list_item.flags() | Qt.ItemIsUserCheckable)
+                    list_item.setCheckState(Qt.Unchecked)
+                    self.branch_list_widget.addItem(list_item)
+                self.status_label.setText(f"{len(branches)} branches loaded for {selected_repo_full_name}.")
+            else:
+                self.status_label.setText(f"No branches found for {selected_repo_full_name} or error during fetch.")
+                # Optionally show a QMessageBox if no branches are found
+                # QMessageBox.information(self, "No Branches", f"No branches found for {selected_repo_full_name}.")
+        except GitHubConnectionError as e: # Catch specific connection error from github_utils
+            self.status_label.setText(f"Error connecting to GitHub: {e}")
+            QMessageBox.critical(self, "GitHub Connection Error", f"Could not connect to GitHub while fetching branches.\nDetails: {e}")
+        except Exception as e: # Generic catch-all
+            self.status_label.setText(f"Error loading branches: {e}")
+            QMessageBox.warning(self, "Error Loading Branches", f"An unexpected error occurred while loading branches for {selected_repo_full_name}: {e}")
+
+
+CONFIG_FILE_PATH = os.path.join(os.path.dirname(__file__), "gitpilot_config.json")
+
+def save_token(token: str):
+    """Saves the GitHub token to the config file."""
+    try:
+        with open(CONFIG_FILE_PATH, "w") as f:
+            json.dump({"github_token": token}, f)
+    except IOError as e:
+        # Handle error (e.g., log it, show a message to the user)
+        print(f"Error saving token: {e}") # Replace with proper logging/user feedback
+
+def load_token() -> str | None:
+    """Loads the GitHub token from the config file."""
+    if not os.path.exists(CONFIG_FILE_PATH):
+        return None
+    try:
+        with open(CONFIG_FILE_PATH, "r") as f:
+            config = json.load(f)
+            return config.get("github_token")
+    except (IOError, json.JSONDecodeError) as e:
+        # Handle error (e.g., log it)
+        print(f"Error loading token: {e}") # Replace with proper logging
+        return None
+
+class TokenEntryDialog(QDialog):
+    """Dialog for entering a GitHub token."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Enter GitHub Token")
+        layout = QVBoxLayout(self)
+
+        layout.addWidget(QLabel("Please enter your GitHub Personal Access Token:"))
+        self.token_input = QLineEdit()
+        self.token_input.setEchoMode(QLineEdit.Password)
+        layout.addWidget(self.token_input)
+
+        buttons_layout = QHBoxLayout()
+        ok_button = QPushButton("OK")
+        ok_button.clicked.connect(self.accept)
+        cancel_button = QPushButton("Cancel")
+        cancel_button.clicked.connect(self.reject)
+        buttons_layout.addStretch()
+        buttons_layout.addWidget(ok_button)
+        buttons_layout.addWidget(cancel_button)
+        layout.addLayout(buttons_layout)
+
+    def get_token(self) -> str | None:
+        if self.result() == QDialog.Accepted:
+            return self.token_input.text().strip()
+        return None
 
 class AddRemoteDialog(QDialog):
     def __init__(self, parent=None):
