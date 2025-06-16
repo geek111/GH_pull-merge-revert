@@ -3,6 +3,7 @@ import json
 import tempfile
 import subprocess
 import webbrowser
+from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox, font
 
@@ -44,6 +45,8 @@ class BulkMerger(tk.Tk):
         self.repo_combo.grid(row=1, column=1, columnspan=2, sticky=tk.EW)
         frm.columnconfigure(1, weight=1)
         frm.columnconfigure(2, weight=1)
+        frm.columnconfigure(3, weight=1)
+        frm.columnconfigure(4, weight=1)
 
         btn_load = ttk.Button(frm, text="Load PRs", command=self.load_prs)
         btn_load.grid(row=2, column=0, pady=5)
@@ -58,6 +61,8 @@ class BulkMerger(tk.Tk):
         btn_open.grid(row=3, column=2, pady=5, sticky=tk.E)
         btn_close = ttk.Button(frm, text="Close Selected", command=self.close_selected)
         btn_close.grid(row=3, column=3, pady=5, sticky=tk.E)
+        btn_branches = ttk.Button(frm, text="Manage Branches", command=self.open_branch_manager)
+        btn_branches.grid(row=3, column=4, pady=5, sticky=tk.E)
 
         self.pr_canvas = tk.Canvas(frm)
         self.pr_canvas.grid(row=4, column=0, columnspan=3, sticky=tk.NSEW)
@@ -74,7 +79,7 @@ class BulkMerger(tk.Tk):
         frm.columnconfigure(2, weight=1)
 
         self.text_output = tk.Text(frm, height=10)
-        self.text_output.grid(row=5, column=0, columnspan=4, sticky=tk.EW)
+        self.text_output.grid(row=5, column=0, columnspan=5, sticky=tk.EW)
 
     def log(self, message):
         self.text_output.insert(tk.END, message + "\n")
@@ -252,6 +257,111 @@ class BulkMerger(tk.Tk):
                     self.log(f"Closed PR #{pr.number}")
                 except GithubException as e:
                     self.log(f"Failed to close PR #{pr.number}: {e.data}")
+
+    def open_branch_manager(self):
+        token = self.token_var.get()
+        repo_name = self.repo_var.get()
+        if not token or not repo_name:
+            messagebox.showerror("Error", "Load repositories first")
+            return
+        BranchManager(self, token, repo_name)
+
+
+class BranchManager(tk.Toplevel):
+    def __init__(self, master, token, repo_name):
+        super().__init__(master)
+        self.title("Branch Manager")
+        self.geometry("500x400")
+        self.token = token
+        self.repo_name = repo_name
+        self.branch_states = {}
+
+        self.name_filter_var = tk.StringVar()
+        self.after_var = tk.StringVar()
+
+        control = ttk.Frame(self)
+        control.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Label(control, text="Name contains:").pack(side=tk.LEFT)
+        ttk.Entry(control, textvariable=self.name_filter_var, width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Label(control, text="Date after YYYY-MM-DD:").pack(side=tk.LEFT)
+        ttk.Entry(control, textvariable=self.after_var, width=12).pack(side=tk.LEFT, padx=5)
+        ttk.Button(control, text="Apply", command=self.apply_filter).pack(side=tk.LEFT)
+
+        columns = ("name", "date")
+        self.tree = ttk.Treeview(self, columns=columns, show="headings", selectmode="extended")
+        self.tree.heading("name", text="Branch")
+        self.tree.heading("date", text="Date")
+        self.tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        self.tree.bind("<Button-3>", self._show_menu)
+
+        self._menu = tk.Menu(self, tearoff=0)
+        self._menu.add_command(label="Check Selected", command=self.check_selected)
+        self._menu.add_command(label="Uncheck Selected", command=self.uncheck_selected)
+
+        self.load_branches()
+
+    def _show_menu(self, event):
+        iid = self.tree.identify_row(event.y)
+        if iid:
+            self.tree.selection_set(iid)
+        self._menu.tk_popup(event.x_root, event.y_root)
+
+    def check_selected(self):
+        for iid in self.tree.selection():
+            self.branch_states[iid] = True
+            self.tree.item(iid, values=("☑ " + self.tree.item(iid, "values")[0], self.tree.item(iid, "values")[1]))
+
+    def uncheck_selected(self):
+        for iid in self.tree.selection():
+            self.branch_states[iid] = False
+            name = self.tree.item(iid, "values")[0]
+            if name.startswith("☑ "):
+                name = name[2:]
+            if not name.startswith("☐ "):
+                name = "☐ " + name
+            self.tree.item(iid, values=(name, self.tree.item(iid, "values")[1]))
+
+    def load_branches(self):
+        g = Github(self.token, per_page=100)
+        repo = g.get_repo(self.repo_name)
+        branches = list(repo.get_branches())
+        self.all_branches = []
+        for br in branches:
+            try:
+                dt = br.commit.commit.author.date
+            except Exception:
+                dt = None
+            self.all_branches.append({"name": br.name, "date": dt})
+        self.populate_tree(self.all_branches)
+
+    def apply_filter(self):
+        name_filter = self.name_filter_var.get().lower()
+        after_text = self.after_var.get().strip()
+        after_dt = None
+        if after_text:
+            try:
+                after_dt = datetime.strptime(after_text, "%Y-%m-%d")
+            except ValueError:
+                messagebox.showerror("Error", "Invalid date format, use YYYY-MM-DD")
+                return
+        filtered = []
+        for br in self.all_branches:
+            if name_filter and name_filter not in br["name"].lower():
+                continue
+            if after_dt and br["date"] and br["date"].replace(tzinfo=None) < after_dt:
+                continue
+            filtered.append(br)
+        self.populate_tree(filtered)
+
+    def populate_tree(self, branches):
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+        for br in branches:
+            label = f"☐ {br['name']}"
+            date_str = br['date'].strftime("%Y-%m-%d") if br['date'] else ""
+            iid = self.tree.insert("", "end", values=(label, date_str))
+            self.branch_states[iid] = False
 
 
 def main():
