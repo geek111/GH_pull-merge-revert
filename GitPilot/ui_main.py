@@ -7,7 +7,7 @@ import sys
 from PyQt5.QtWidgets import (QMainWindow, QApplication, QWidget,
                              QVBoxLayout, QHBoxLayout, QTextEdit, QMessageBox, # Added QMessageBox
                              QPushButton, QLineEdit, QFileDialog, QLabel, QInputDialog, QDialog,
-                             QScrollArea, QComboBox, QListWidget, QAbstractItemView) # Added QListWidget, QAbstractItemView
+                             QScrollArea, QComboBox, QListWidget, QListWidgetItem, QAbstractItemView) # Added QListWidgetItem
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QTextCharFormat, QFont # Added for future use
 import re
