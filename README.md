@@ -31,9 +31,9 @@ to merge or revert, then click **Merge Selected** or **Revert Selected**.
 Branches can be inspected with **Manage Branches** which opens a window
 listing branch names sorted by commit date with filtering options and a button
 to delete checked branches.
-The main window displays a status line showing progress when loading
-repositories, pull requests or branches. Branch lists are cached per repository
-to avoid fetching them repeatedly.
+The main window displays a status line showing progress with percentages when
+loading repositories, pull requests or branches. Branch lists are cached per
+repository to avoid fetching them repeatedly.
 
 The script attempts to merge using the GitHub API and falls back to a local
 `git` merge with a simple conflict strategy if necessary.
