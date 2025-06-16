@@ -80,6 +80,59 @@ class GitHubManager:
             print(f"An unexpected error occurred while fetching branches for '{repo_full_name}': {e}")
             return []
 
+    def delete_branch(self, repo_full_name: str, branch_name: str) -> tuple[bool, str]:
+        """
+        Deletes a branch from the specified GitHub repository.
+
+        Args:
+            repo_full_name (str): The full name of the repository (e.g., 'user/repo1').
+            branch_name (str): The name of the branch to delete.
+
+        Returns:
+            tuple[bool, str]: A tuple containing a boolean indicating success (True) or failure (False),
+                              and a message string describing the outcome.
+        """
+        if not self.user:
+            msg = "Error: GitHubManager not properly initialized or token is invalid."
+            print(msg)
+            return False, msg
+
+        try:
+            repo = self.g.get_repo(repo_full_name)
+            ref_path = f"heads/{branch_name}" # PyGithub expects "heads/branch" not "refs/heads/branch" for get_git_ref argument related to branches
+
+            # Check if the branch is the default branch, prevent deletion
+            if branch_name == repo.default_branch:
+                msg = f"Cannot delete the default branch '{branch_name}'."
+                print(f"Attempted to delete default branch: {branch_name} in repo {repo_full_name}")
+                return False, msg
+
+            ref = repo.get_git_ref(ref_path) # This gets the ref object
+            ref.delete()
+            msg = f"Branch '{branch_name}' successfully deleted from '{repo_full_name}'."
+            print(msg)
+            return True, msg
+        except GithubException as e:
+            if e.status == 404 or e.status == 422: # 404 for not found, 422 if ref is not a branch ref or other issues
+                # PyGithub might raise 422 if trying to get a ref that doesn't start with "refs/"
+                # or if the ref is not found but it's not a simple 404.
+                # Let's try to get ref with "refs/heads/" to be more specific if the first attempt fails,
+                # as this is what GitHub API documentation usually refers to for branch deletion.
+                # However, PyGithub's get_git_ref for deleting is usually just "heads/branchname".
+                # The error "Reference does not exist" often comes as a 422 from `ref.delete()` if ref was obtained but points to non-deletable thing
+                # or if it's already deleted.
+                msg = f"Error deleting branch '{branch_name}' from '{repo_full_name}': Branch not found or already deleted (Status: {e.status})."
+            elif e.status == 403:
+                msg = f"Error deleting branch '{branch_name}' from '{repo_full_name}': Forbidden. Check token permissions. (Status: {e.status})"
+            else:
+                msg = f"Error deleting branch '{branch_name}' from '{repo_full_name}': {e.data.get('message', str(e))} (Status: {e.status})"
+            print(msg)
+            return False, msg
+        except Exception as e:
+            msg = f"An unexpected error occurred while deleting branch '{branch_name}' from '{repo_full_name}': {str(e)}"
+            print(msg)
+            return False, msg
+
 if __name__ == '__main__':
     # Example Usage (requires a valid token and repo name for testing)
     # Replace 'YOUR_TOKEN' with a real GitHub PAT and 'USER/REPO' with a real repo

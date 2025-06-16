@@ -7,7 +7,8 @@ import sys
 from PyQt5.QtWidgets import (QMainWindow, QApplication, QWidget,
                              QVBoxLayout, QHBoxLayout, QTextEdit, QMessageBox, # Added QMessageBox
                              QPushButton, QLineEdit, QFileDialog, QLabel, QInputDialog, QDialog,
-                             QScrollArea, QComboBox, QListWidget, QListWidgetItem, QAbstractItemView) # Added QListWidgetItem
+                             QScrollArea, QComboBox, QListWidget, QListWidgetItem, QAbstractItemView, QMenu,
+                             QTableWidget, QTableWidgetItem, QHeaderView) # Added QTableWidget, QTableWidgetItem, QHeaderView
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QTextCharFormat, QFont # Added for future use
 import re
@@ -962,14 +963,21 @@ class BranchManagementDialog(QDialog):
         self.status_label = QLabel("Select a repository and click 'Load Branches'.")
         self.status_label.setAlignment(Qt.AlignCenter)
 
-        self.branch_list_widget = QListWidget()
-        self.branch_list_widget.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        # Item checkability will be set when items are added.
+        self.branch_table_widget = QTableWidget() # Changed from QListWidget
+        self.branch_table_widget.setSortingEnabled(True) # Enable sorting
+        self.branch_table_widget.setSelectionMode(QAbstractItemView.ExtendedSelection) # Still relevant for rows
+        # Item checkability will be handled per cell/item in QTableWidget
+        self.branch_table_widget.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.branch_table_widget.customContextMenuRequested.connect(self._show_branch_list_context_menu)
 
         # Add widgets to main layout
         main_layout.addLayout(repo_selection_layout)
         main_layout.addWidget(self.status_label)
-        main_layout.addWidget(self.branch_list_widget, 1) #让他占据更多空间
+        main_layout.addWidget(self.branch_table_widget, 1) #让他占据更多空间
+
+        self.delete_branches_button = QPushButton("Delete Selected Branches")
+        self.delete_branches_button.clicked.connect(self._on_delete_selected_branches_clicked)
+        main_layout.addWidget(self.delete_branches_button) # Added button to layout
 
         self.setLayout(main_layout)
 
@@ -1003,30 +1011,157 @@ class BranchManagementDialog(QDialog):
             QMessageBox.warning(self, "No Repository Selected", "Please select a repository from the list.")
             return
 
-        self.branch_list_widget.clear()
+        self.branch_table_widget.clearContents() # Clears data but not headers
+        self.branch_table_widget.setRowCount(0) # Resets row count
+
         self.status_label.setText(f"Loading branches for {selected_repo_full_name}...")
-        QApplication.processEvents() # Ensure UI updates before blocking call
+        QApplication.processEvents()
 
         try:
             branches = self.github_manager.get_branches(selected_repo_full_name)
+
             if branches:
-                for branch_info in branches:
-                    item_text = f"{branch_info['name']} (Last commit: {branch_info['last_commit_date']})"
-                    list_item = QListWidgetItem(item_text) # Corrected: QListWidgetItem
-                    list_item.setFlags(list_item.flags() | Qt.ItemIsUserCheckable)
-                    list_item.setCheckState(Qt.Unchecked)
-                    self.branch_list_widget.addItem(list_item)
+                self.branch_table_widget.setColumnCount(3) # Checkbox, Name, Date
+                self.branch_table_widget.setHorizontalHeaderLabels(["", "Name", "Last Commit Date"])
+
+                for i, branch_info in enumerate(branches):
+                    self.branch_table_widget.insertRow(i)
+
+                    # Column 0: Checkbox
+                    chk_item = QTableWidgetItem()
+                    chk_item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled) # Make it checkable
+                    chk_item.setCheckState(Qt.Unchecked)
+                    self.branch_table_widget.setItem(i, 0, chk_item)
+
+                    # Column 1: Branch Name
+                    name_item = QTableWidgetItem(branch_info['name'])
+                    name_item.setFlags(name_item.flags() & ~Qt.ItemIsEditable) # Make non-editable
+                    self.branch_table_widget.setItem(i, 1, name_item)
+
+                    # Column 2: Last Commit Date
+                    date_item = QTableWidgetItem(branch_info['last_commit_date'])
+                    date_item.setFlags(date_item.flags() & ~Qt.ItemIsEditable) # Make non-editable
+                    self.branch_table_widget.setItem(i, 2, date_item)
+
+                # Adjust column widths
+                self.branch_table_widget.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents) # Checkbox column
+                self.branch_table_widget.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch) # Name column
+                self.branch_table_widget.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents) # Date column
+
                 self.status_label.setText(f"{len(branches)} branches loaded for {selected_repo_full_name}.")
             else:
+                self.branch_table_widget.setColumnCount(0) # Clear columns if no branches
                 self.status_label.setText(f"No branches found for {selected_repo_full_name} or error during fetch.")
-                # Optionally show a QMessageBox if no branches are found
-                # QMessageBox.information(self, "No Branches", f"No branches found for {selected_repo_full_name}.")
-        except ConnectionError as e: # Catch specific connection error from github_utils
+        except ConnectionError as e:
             self.status_label.setText(f"Error connecting to GitHub: {e}")
             QMessageBox.critical(self, "GitHub Connection Error", f"Could not connect to GitHub while fetching branches.\nDetails: {e}")
-        except Exception as e: # Generic catch-all
+            self.branch_table_widget.setColumnCount(0)
+        except Exception as e:
             self.status_label.setText(f"Error loading branches: {e}")
             QMessageBox.warning(self, "Error Loading Branches", f"An unexpected error occurred while loading branches for {selected_repo_full_name}: {e}")
+            self.branch_table_widget.setColumnCount(0)
+
+    def _show_branch_list_context_menu(self, position):
+        context_menu = QMenu(self)
+
+        select_all_action = context_menu.addAction("Select All")
+        deselect_all_action = context_menu.addAction("Deselect All")
+
+        select_all_action.triggered.connect(self._select_all_branches)
+        deselect_all_action.triggered.connect(self._deselect_all_branches)
+
+        context_menu.exec_(self.branch_table_widget.mapToGlobal(position)) # Changed here
+
+    def _select_all_branches(self):
+        for i in range(self.branch_table_widget.rowCount()): # Changed here
+            item = self.branch_table_widget.item(i, 0) # Checkbox in column 0
+            if item and (item.flags() & Qt.ItemIsUserCheckable): # Added item check
+                item.setCheckState(Qt.Checked)
+
+    def _deselect_all_branches(self):
+        for i in range(self.branch_table_widget.rowCount()): # Changed here
+            item = self.branch_table_widget.item(i, 0) # Checkbox in column 0
+            if item and (item.flags() & Qt.ItemIsUserCheckable): # Added item check
+                item.setCheckState(Qt.Unchecked)
+
+    def _on_delete_selected_branches_clicked(self):
+        selected_repo_full_name = self.repo_combo.currentText()
+        if not selected_repo_full_name:
+            QMessageBox.warning(self, "No Repository", "Please select a repository first.")
+            return
+
+        selected_branches_info = [] # To store {'name': str, 'row': int}
+        for i in range(self.branch_table_widget.rowCount()):
+            chk_item = self.branch_table_widget.item(i, 0) # Checkbox item in column 0
+            if chk_item and chk_item.checkState() == Qt.Checked:
+                name_item = self.branch_table_widget.item(i, 1) # Name item in column 1
+                if name_item:
+                    selected_branches_info.append({'name': name_item.text(), 'row': i})
+
+        if not selected_branches_info:
+            QMessageBox.information(self, "No Selection", "No branches selected for deletion.")
+            return
+
+        branch_names_to_delete = [info['name'] for info in selected_branches_info]
+
+        confirm_message = (f"Are you sure you want to delete the following branch(es) "
+                           f"from the remote GitHub repository '{selected_repo_full_name}'?\n\n"
+                           f"- {', '.join(branch_names_to_delete)}\n\n"
+                           "This action cannot be undone from this interface.")
+
+        reply = QMessageBox.question(self, "Confirm Branch Deletion", confirm_message,
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+
+        if reply == QMessageBox.No:
+            self.status_label.setText("Branch deletion cancelled.")
+            # self.append_output_to_main_window("Branch deletion cancelled by user.") # Use if helper is added
+            print("Branch deletion cancelled by user.") # Simple print for now
+            return
+
+        self.status_label.setText(f"Deleting selected branches from {selected_repo_full_name}...")
+        QApplication.processEvents() # Update UI
+
+        successful_deletions = []
+        failed_deletions = [] # To store {'name': str, 'message': str}
+
+        # Ensure this helper method is defined in BranchManagementDialog, or use print
+        # if self.parent() and hasattr(self.parent(), 'append_output'):
+        #     parent_append_output = self.parent().append_output
+        # else:
+        #     parent_append_output = lambda msg: print(f"[BranchManager-FallbackLog] {msg}")
+        # For simplicity in this subtask, we'll use direct print and rely on status_label / QMessageBox for user feedback.
+
+        for branch_info in selected_branches_info:
+            branch_name = branch_info['name']
+            print(f"Attempting to delete branch '{branch_name}' from '{selected_repo_full_name}'...")
+
+            success, message = self.github_manager.delete_branch(selected_repo_full_name, branch_name)
+
+            print(f"Deletion of '{branch_name}': {message}")
+
+            if success:
+                successful_deletions.append(branch_name)
+            else:
+                failed_deletions.append({'name': branch_name, 'message': message})
+
+        # Prepare summary message
+        summary_parts = []
+        if successful_deletions:
+            summary_parts.append(f"Successfully deleted {len(successful_deletions)} branch(es): {', '.join(successful_deletions)}.")
+        if failed_deletions:
+            failed_details = [f"{f['name']} ({f['message']})" for f in failed_deletions]
+            summary_parts.append(f"Failed to delete {len(failed_deletions)} branch(es): {'; '.join(failed_details)}.")
+
+        final_summary = "\n".join(summary_parts)
+        if not final_summary:
+            final_summary = "No action was performed or branch status unchanged (e.g. selected branch was default branch)."
+
+        QMessageBox.information(self, "Deletion Summary", final_summary)
+        self.status_label.setText("Branch deletion process completed. Refreshing list...")
+        print(f"Deletion summary for {selected_repo_full_name}: {final_summary}")
+
+        # Refresh the branch list
+        self._on_load_branches_clicked()
 
 
 CONFIG_FILE_PATH = os.path.join(os.path.dirname(__file__), "gitpilot_config.json")
