@@ -29,6 +29,12 @@ fetch open pull requests. You can load previously merged pull requests with
 **Load Merged PRs**. Select the ones you want
 to merge or revert, then click **Merge Selected** or **Revert Selected**.
 
+### Branch Manager
+
+Use **Manage Branches** to open a window listing repository branches. You can
+filter by name or date and toggle check marks for the highlighted branches using
+the right mouse button.
+
 The script attempts to merge using the GitHub API and falls back to a local
 `git` merge with a simple conflict strategy if necessary.
 

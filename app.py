@@ -49,6 +49,8 @@ class BulkMerger(tk.Tk):
         btn_load.grid(row=2, column=0, pady=5)
         btn_load_closed = ttk.Button(frm, text="Load Merged PRs", command=lambda: self.load_prs(state="closed"))
         btn_load_closed.grid(row=2, column=1, pady=5, sticky=tk.E)
+        btn_branch = ttk.Button(frm, text="Manage Branches", command=self.open_branch_manager)
+        btn_branch.grid(row=2, column=2, pady=5, sticky=tk.E)
 
         btn_merge = ttk.Button(frm, text="Merge Selected", command=self.merge_selected)
         btn_merge.grid(row=3, column=0, pady=5)
@@ -252,6 +254,80 @@ class BulkMerger(tk.Tk):
                     self.log(f"Closed PR #{pr.number}")
                 except GithubException as e:
                     self.log(f"Failed to close PR #{pr.number}: {e.data}")
+
+    def open_branch_manager(self):
+        BranchManager(self)
+
+
+class BranchManager(tk.Toplevel):
+    def __init__(self, master: BulkMerger):
+        super().__init__(master)
+        self.master = master
+        self.token = master.token_var.get()
+        self.repo_name = master.repo_var.get()
+        self.branches = []
+        self.checked = set()
+        self.filtered_indices = []
+
+        self.title("Branch Manager")
+        self.geometry("500x400")
+
+        filter_frame = ttk.Frame(self)
+        filter_frame.pack(fill=tk.X, padx=10, pady=5)
+        self.name_filter = tk.StringVar()
+        self.date_filter = tk.StringVar()
+        ttk.Label(filter_frame, text="Name Filter:").grid(row=0, column=0, sticky=tk.W)
+        ttk.Entry(filter_frame, textvariable=self.name_filter).grid(row=0, column=1, sticky=tk.EW)
+        ttk.Label(filter_frame, text="Date Filter:").grid(row=1, column=0, sticky=tk.W)
+        ttk.Entry(filter_frame, textvariable=self.date_filter).grid(row=1, column=1, sticky=tk.EW)
+        ttk.Button(filter_frame, text="Apply", command=self.apply_filter).grid(row=0, column=2, rowspan=2, padx=5)
+        filter_frame.columnconfigure(1, weight=1)
+
+        list_frame = ttk.Frame(self)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        self.listbox = tk.Listbox(list_frame, selectmode="extended")
+        self.listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.scroll = ttk.Scrollbar(list_frame, orient="vertical", command=self.listbox.yview)
+        self.scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.listbox.configure(yscrollcommand=self.scroll.set)
+
+        self.menu = tk.Menu(self, tearoff=0)
+        self.menu.add_command(label="Toggle Checked", command=self.toggle_checked)
+        self.listbox.bind("<Button-3>", self.show_menu)
+
+        self.load_branches()
+
+    def show_menu(self, event):
+        self.menu.tk_popup(event.x_root, event.y_root)
+
+    def load_branches(self):
+        g = Github(self.token, per_page=100)
+        repo = g.get_repo(self.repo_name)
+        self.branches = [(b.name, b.commit.commit.author.date) for b in repo.get_branches()]
+        self.apply_filter()
+
+    def apply_filter(self):
+        name_f = self.name_filter.get().lower()
+        date_f = self.date_filter.get()
+        self.listbox.delete(0, tk.END)
+        self.filtered_indices.clear()
+        for idx, (name, dt) in enumerate(self.branches):
+            if name_f and name_f not in name.lower():
+                continue
+            if date_f and date_f not in str(dt.date()):
+                continue
+            self.filtered_indices.append(idx)
+            mark = "\u2611" if idx in self.checked else "\u2610"
+            self.listbox.insert(tk.END, f"{mark} {name} {dt.date()}")
+
+    def toggle_checked(self):
+        for sel in self.listbox.curselection():
+            idx = self.filtered_indices[sel]
+            if idx in self.checked:
+                self.checked.remove(idx)
+            else:
+                self.checked.add(idx)
+        self.apply_filter()
 
 
 def main():
