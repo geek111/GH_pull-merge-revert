@@ -371,6 +371,7 @@ class BranchManager(tk.Toplevel):
         btn_frame = ttk.Frame(frm)
         btn_frame.pack(fill=tk.X, pady=5)
         ttk.Button(btn_frame, text="Delete Checked", command=self.delete_checked).pack(side=tk.RIGHT)
+        ttk.Button(btn_frame, text="Refresh", command=self.refresh_branches).pack(side=tk.RIGHT, padx=5)
 
     def show_context_menu(self, event):
         self.tree.focus_set()
@@ -458,6 +459,11 @@ class BranchManager(tk.Toplevel):
                     ]
             except GithubException as e:
                 messagebox.showerror("Error", f"Failed to delete {name}: {e.data}")
+        save_branch_cache(branch_cache)
+        self.load_branches()
+
+    def refresh_branches(self):
+        branch_cache.pop(self.repo_name, None)
         save_branch_cache(branch_cache)
         self.load_branches()
 
