@@ -103,8 +103,20 @@ class BulkMerger(tk.Tk):
         self.text_output = tk.Text(frm, height=10)
         self.text_output.grid(row=5, column=0, columnspan=4, sticky=tk.EW)
         ttk.Label(frm, textvariable=self.status_var).grid(row=6, column=0, columnspan=4, sticky=tk.W)
-        self.progress = ttk.Progressbar(frm, variable=self.progress_var, maximum=100)
-        self.progress.grid(row=7, column=0, columnspan=4, sticky=tk.EW, pady=5)
+        progress_frame = ttk.Frame(frm)
+        progress_frame.grid(row=7, column=0, columnspan=4, sticky=tk.EW, pady=5)
+        self.progress = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
+        self.progress.pack(fill=tk.X)
+        style = ttk.Style()
+        style.configure("Transparent.TLabel", background="")
+        self.progress_text = tk.StringVar(value="")
+        self.progress_label = ttk.Label(
+            progress_frame,
+            textvariable=self.progress_text,
+            anchor="center",
+            style="Transparent.TLabel",
+        )
+        self.progress_label.place(relx=0.5, rely=0.5, anchor="center")
 
     def log(self, message):
         self.text_output.insert(tk.END, message + "\n")
@@ -112,14 +124,19 @@ class BulkMerger(tk.Tk):
 
     def set_status(self, message):
         self.status_var.set(message)
+        self.update_progress_text()
         self.update_idletasks()
 
     def set_progress(self, value):
         self.progress_var.set(value)
+        self.update_progress_text()
         self.update_idletasks()
 
     def reset_progress(self):
         self.set_progress(0)
+
+    def update_progress_text(self):
+        self.progress_text.set(f"{self.status_var.get()} {int(self.progress_var.get())}%")
 
     def run_async(self, func):
         threading.Thread(target=func, daemon=True).start()
@@ -362,6 +379,7 @@ class BranchManager(tk.Toplevel):
         self.repo_name = repo_name
         self.status_var = tk.StringVar(value="Ready")
         self.progress_var = tk.DoubleVar(value=0)
+        self.progress_text = tk.StringVar(value="")
         self.branch_vars = {}
         self.branches = []
         self.branch_statuses = {}
@@ -370,15 +388,20 @@ class BranchManager(tk.Toplevel):
 
     def set_status(self, message):
         self.status_var.set(message)
+        self.update_progress_text()
         self.update_idletasks()
         self.master.set_status(message)
 
     def set_progress(self, value):
         self.progress_var.set(value)
+        self.update_progress_text()
         self.update_idletasks()
 
     def reset_progress(self):
         self.set_progress(0)
+
+    def update_progress_text(self):
+        self.progress_text.set(f"{self.status_var.get()} {int(self.progress_var.get())}%")
 
     def create_widgets(self):
         frm = ttk.Frame(self)
@@ -425,8 +448,19 @@ class BranchManager(tk.Toplevel):
         ttk.Button(btn_frame, text="Refresh", command=self.refresh_branches).pack(side=tk.LEFT)
         ttk.Button(btn_frame, text="Delete Checked", command=self.delete_checked).pack(side=tk.RIGHT)
         ttk.Label(frm, textvariable=self.status_var).pack(anchor=tk.W)
-        self.progress = ttk.Progressbar(frm, variable=self.progress_var, maximum=100)
-        self.progress.pack(fill=tk.X, pady=5)
+        progress_frame = ttk.Frame(frm)
+        progress_frame.pack(fill=tk.X, pady=5)
+        self.progress = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
+        self.progress.pack(fill=tk.X)
+        style = ttk.Style()
+        style.configure("Transparent.TLabel", background="")
+        self.progress_label = ttk.Label(
+            progress_frame,
+            textvariable=self.progress_text,
+            anchor="center",
+            style="Transparent.TLabel",
+        )
+        self.progress_label.place(relx=0.5, rely=0.5, anchor="center")
 
     def show_context_menu(self, event):
         self.tree.focus_set()
