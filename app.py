@@ -11,6 +11,7 @@ import tkinter.font as tkfont
 from github import Github
 from github.GithubException import GithubException
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 def blend_colors(widget, fg, bg, alpha=0.5):
@@ -25,7 +26,7 @@ def blend_colors(widget, fg, bg, alpha=0.5):
 CONFIG_FILE = "config.json"
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 
 def load_branch_cache():
@@ -528,7 +529,8 @@ class BranchManager(tk.Toplevel):
             repo = g.get_repo(self.repo_name)
             owner = self.repo_name.split("/")[0]
             statuses = {}
-            for idx, (name, _) in enumerate(branches):
+
+            def fetch_status(name):
                 try:
                     prs = repo.get_pulls(state="all", head=f"{owner}:{name}")
                     status = "no PR"
@@ -543,9 +545,15 @@ class BranchManager(tk.Toplevel):
                         break
                 except GithubException:
                     status = "error"
-                statuses[name] = status
-                progress = ((total + idx + 1) / (total * 2)) * 100 if total else 100
-                self.after(0, lambda p=progress: self.set_progress(p))
+                return name, status
+
+            with ThreadPoolExecutor(max_workers=10) as ex:
+                futures = [ex.submit(fetch_status, name) for name, _ in branches]
+                for idx, fut in enumerate(as_completed(futures)):
+                    name, status = fut.result()
+                    statuses[name] = status
+                    progress = ((total + idx + 1) / (total * 2)) * 100 if total else 100
+                    self.after(0, lambda p=progress: self.set_progress(p))
             branches.sort(key=lambda x: x[1], reverse=True)
 
             def update():
