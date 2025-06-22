@@ -197,10 +197,15 @@ class BulkMerger(tk.Tk):
                 self.pr_vars.clear()
                 for i, pr in enumerate(self.prs):
                     var = tk.BooleanVar()
-                    ttk.Checkbutton(self.pr_frame, text=f"#{pr.number}: {pr.title}", variable=var).grid(row=i, column=0, sticky=tk.W)
+                    ttk.Checkbutton(
+                        self.pr_frame,
+                        text=f"#{pr.number}: {pr.title}",
+                        variable=var,
+                    ).grid(row=i, column=0, sticky=tk.W)
                     self.pr_vars.append(var)
                 self.log(f"Loaded {len(self.prs)} pull requests.")
                 self.set_status("Ready")
+                PullRequestList(self, token, repo_name)
             self.after(0, update_ui)
         self.run_async(worker)
 
@@ -466,6 +471,59 @@ class BranchManager(tk.Toplevel):
                 messagebox.showerror("Error", f"Failed to delete {name}: {e.data}")
         save_branch_cache(branch_cache)
         self.load_branches()
+
+
+class PullRequestList(tk.Toplevel):
+    def __init__(self, master, token, repo_name):
+        super().__init__(master)
+        self.title("Pull Request List")
+        self.geometry("500x400")
+        self.token = token
+        self.repo_name = repo_name
+        self.create_widgets()
+        self.load_prs()
+
+    def create_widgets(self):
+        frm = ttk.Frame(self)
+        frm.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        self.tree = ttk.Treeview(
+            frm,
+            columns=("number", "title", "state"),
+            show="headings",
+            selectmode="browse",
+        )
+        self.tree.heading("number", text="Number")
+        self.tree.heading("title", text="Title")
+        self.tree.heading("state", text="State")
+        self.tree.column("number", width=80, anchor="center")
+        self.tree.column("title", width=280)
+        self.tree.column("state", width=100, anchor="center")
+        self.tree.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
+        scroll = ttk.Scrollbar(frm, orient="vertical", command=self.tree.yview)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree.configure(yscrollcommand=scroll.set)
+
+        btn_frame = ttk.Frame(self)
+        btn_frame.pack(fill=tk.X, pady=5)
+        ttk.Button(btn_frame, text="Refresh", command=self.load_prs).pack(side=tk.LEFT)
+
+    def load_prs(self):
+        def worker():
+            self.master.set_status("Loading PR list...")
+            g = Github(self.token, per_page=100)
+            repo = g.get_repo(self.repo_name)
+            prs = list(repo.get_pulls(state="all", sort="created"))
+
+            def update():
+                self.tree.delete(*self.tree.get_children())
+                for pr in prs:
+                    self.tree.insert("", "end", values=(pr.number, pr.title, pr.state))
+                self.master.set_status("Ready")
+
+            self.master.after(0, update)
+
+        self.master.run_async(worker)
 
 
 def main():
