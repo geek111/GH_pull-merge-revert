@@ -5,7 +5,8 @@ import subprocess
 import webbrowser
 import datetime
 import tkinter as tk
-from tkinter import ttk, messagebox, font
+from tkinter import ttk, messagebox
+import tkinter.font as tkfont
 
 from github import Github
 from github.GithubException import GithubException
@@ -37,11 +38,12 @@ branch_cache = load_branch_cache()
 class BulkMerger(tk.Tk):
     def __init__(self):
         super().__init__()
-        default_font = tk.font.nametofont("TkDefaultFont")
+        default_font = tkfont.nametofont("TkDefaultFont")
         default_font.configure(size=13)
         self.option_add("*Font", default_font)
         self.title("GitHub Bulk Merger")
         self.geometry("600x400")
+        # style for widgets will be configured after frames are created
         self.token_var = tk.StringVar()
         self.repo_var = tk.StringVar()
         self.pr_vars = []
@@ -57,6 +59,10 @@ class BulkMerger(tk.Tk):
     def create_widgets(self):
         frm = ttk.Frame(self)
         frm.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+
+        # configure label colors based on the style background
+        style = ttk.Style()
+        status_bg = style.lookup("TFrame", "background") or self.cget("background")
 
         ttk.Label(frm, text="GitHub Token:").grid(row=0, column=0, sticky=tk.W)
         ttk.Entry(frm, textvariable=self.token_var, show="*").grid(row=0, column=1, sticky=tk.EW)
@@ -102,13 +108,25 @@ class BulkMerger(tk.Tk):
 
         self.text_output = tk.Text(frm, height=10)
         self.text_output.grid(row=5, column=0, columnspan=4, sticky=tk.EW)
-        ttk.Label(frm, textvariable=self.status_var).grid(row=6, column=0, columnspan=4, sticky=tk.W)
+        self.status_label = tk.Label(
+            frm,
+            textvariable=self.status_var,
+            bg=status_bg,
+            borderwidth=0,
+        )
+        self.status_label.grid(row=6, column=0, columnspan=4, sticky=tk.W)
         progress_frame = ttk.Frame(frm)
         progress_frame.grid(row=7, column=0, columnspan=4, sticky=tk.EW, pady=5)
         self.progress = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
         self.progress.pack(fill=tk.X)
         self.progress_text = tk.StringVar(value="")
-        self.progress_label = ttk.Label(progress_frame, textvariable=self.progress_text, anchor="center")
+        self.progress_label = tk.Label(
+            progress_frame,
+            textvariable=self.progress_text,
+            bg=status_bg,
+            borderwidth=0,
+            anchor="center",
+        )
         self.progress_label.place(relx=0.5, rely=0.5, anchor="center")
 
     def log(self, message):
@@ -400,6 +418,9 @@ class BranchManager(tk.Toplevel):
         frm = ttk.Frame(self)
         frm.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
+        style = ttk.Style()
+        bg_color = style.lookup("TFrame", "background") or self.cget("background")
+
         filter_frame = ttk.Frame(frm)
         filter_frame.pack(fill=tk.X, pady=5)
         ttk.Label(filter_frame, text="Name filter:").pack(side=tk.LEFT)
@@ -440,12 +461,18 @@ class BranchManager(tk.Toplevel):
         btn_frame.pack(fill=tk.X, pady=5)
         ttk.Button(btn_frame, text="Refresh", command=self.refresh_branches).pack(side=tk.LEFT)
         ttk.Button(btn_frame, text="Delete Checked", command=self.delete_checked).pack(side=tk.RIGHT)
-        ttk.Label(frm, textvariable=self.status_var).pack(anchor=tk.W)
+        tk.Label(frm, textvariable=self.status_var, bg=bg_color, borderwidth=0).pack(anchor=tk.W)
         progress_frame = ttk.Frame(frm)
         progress_frame.pack(fill=tk.X, pady=5)
         self.progress = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
         self.progress.pack(fill=tk.X)
-        self.progress_label = ttk.Label(progress_frame, textvariable=self.progress_text, anchor="center")
+        self.progress_label = tk.Label(
+            progress_frame,
+            textvariable=self.progress_text,
+            bg=bg_color,
+            borderwidth=0,
+            anchor="center",
+        )
         self.progress_label.place(relx=0.5, rely=0.5, anchor="center")
 
     def show_context_menu(self, event):
