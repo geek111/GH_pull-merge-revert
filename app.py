@@ -42,6 +42,11 @@ class BulkMerger(tk.Tk):
         self.option_add("*Font", default_font)
         self.title("GitHub Bulk Merger")
         self.geometry("600x400")
+        # create a style for a transparent status label
+        self.style = ttk.Style()
+        self.style.configure(
+            "Transparent.TLabel", background=self.cget("background")
+        )
         self.token_var = tk.StringVar()
         self.repo_var = tk.StringVar()
         self.pr_vars = []
@@ -102,7 +107,10 @@ class BulkMerger(tk.Tk):
 
         self.text_output = tk.Text(frm, height=10)
         self.text_output.grid(row=5, column=0, columnspan=4, sticky=tk.EW)
-        ttk.Label(frm, textvariable=self.status_var).grid(row=6, column=0, columnspan=4, sticky=tk.W)
+        self.status_label = ttk.Label(
+            frm, textvariable=self.status_var, style="Transparent.TLabel"
+        )
+        self.status_label.grid(row=6, column=0, columnspan=4, sticky=tk.W)
         progress_frame = ttk.Frame(frm)
         progress_frame.grid(row=7, column=0, columnspan=4, sticky=tk.EW, pady=5)
         self.progress = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
