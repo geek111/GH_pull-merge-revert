@@ -327,8 +327,13 @@ class BranchManager(tk.Toplevel):
         self.repo_name = repo_name
         self.branch_vars = {}
         self.branches = []
+        self.status_var = tk.StringVar(value="Ready")
         self.create_widgets()
         self.load_branches()
+
+    def set_status(self, message):
+        self.status_var.set(message)
+        self.update_idletasks()
 
     def create_widgets(self):
         frm = ttk.Frame(self)
@@ -373,11 +378,14 @@ class BranchManager(tk.Toplevel):
         ttk.Button(btn_frame, text="Refresh", command=self.refresh_branches).pack(side=tk.LEFT)
         ttk.Button(btn_frame, text="Delete Checked", command=self.delete_checked).pack(side=tk.RIGHT)
 
+        ttk.Label(frm, textvariable=self.status_var).pack(anchor="w")
+
     def show_context_menu(self, event):
         self.tree.focus_set()
         self.menu.tk_popup(event.x_root, event.y_root)
 
     def refresh_branches(self):
+        self.set_status("Refreshing branches...")
         branch_cache.pop(self.repo_name, None)
         save_branch_cache(branch_cache)
         self.load_branches(force=True)
@@ -387,8 +395,10 @@ class BranchManager(tk.Toplevel):
             cached = None if force else branch_cache.get(self.repo_name)
             if cached:
                 branches = [(name, datetime.datetime.fromisoformat(dt)) for name, dt in cached]
+                self.after(0, lambda: self.set_status("Loading branches from cache..."))
             else:
                 self.master.after(0, lambda: self.master.set_status("Loading branches..."))
+                self.after(0, lambda: self.set_status("Loading branches..."))
                 g = Github(self.token, per_page=100)
                 repo = g.get_repo(self.repo_name)
                 branches = []
@@ -403,6 +413,7 @@ class BranchManager(tk.Toplevel):
                 self.branches = branches
                 self.apply_filters()
                 self.master.set_status("Ready")
+                self.set_status("Ready")
 
             self.after(0, update)
 
@@ -449,6 +460,7 @@ class BranchManager(tk.Toplevel):
         confirm = messagebox.askyesno("Confirm", "Delete checked branches?")
         if not confirm:
             return
+        self.set_status("Deleting branches...")
         g = Github(self.token, per_page=100)
         repo = g.get_repo(self.repo_name)
         to_delete = [name for name, var in self.branch_vars.items() if var.get()]
@@ -466,6 +478,7 @@ class BranchManager(tk.Toplevel):
                 messagebox.showerror("Error", f"Failed to delete {name}: {e.data}")
         save_branch_cache(branch_cache)
         self.load_branches()
+        self.set_status("Ready")
 
 
 def main():

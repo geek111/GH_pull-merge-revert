@@ -29,8 +29,8 @@ fetch open pull requests. You can load previously merged pull requests with
 **Load Merged PRs**. Select the ones you want
 to merge or revert, then click **Merge Selected** or **Revert Selected**.
 Branches can be inspected with **Manage Branches** which opens a window
-listing branch names sorted by commit date with filtering options and a button
-to delete checked branches.
+listing branch names sorted by commit date with filtering options, a status line,
+and a button to delete checked branches.
 The main window displays a status line showing progress when loading
 repositories, pull requests or branches. Branch lists are cached per repository
 to avoid fetching them repeatedly.
