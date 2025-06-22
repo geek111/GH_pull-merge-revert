@@ -48,6 +48,7 @@ class BulkMerger(tk.Tk):
         self.cached_repos = []
         self.config_token = ""
         self.status_var = tk.StringVar(value="Ready")
+        self.progress_var = tk.DoubleVar(value=0)
         self.load_config()
         self.create_widgets()
         self.prs = []
@@ -101,13 +102,18 @@ class BulkMerger(tk.Tk):
         self.text_output = tk.Text(frm, height=10)
         self.text_output.grid(row=5, column=0, columnspan=4, sticky=tk.EW)
         ttk.Label(frm, textvariable=self.status_var).grid(row=6, column=0, columnspan=4, sticky=tk.W)
+        self.progress = ttk.Progressbar(frm, variable=self.progress_var, maximum=100)
+        self.progress.grid(row=7, column=0, columnspan=4, sticky=tk.EW)
+        frm.rowconfigure(7, weight=0)
 
     def log(self, message):
         self.text_output.insert(tk.END, message + "\n")
         self.text_output.see(tk.END)
 
-    def set_status(self, message):
+    def set_status(self, message, progress=None):
         self.status_var.set(message)
+        if progress is not None:
+            self.progress_var.set(progress)
         self.update_idletasks()
 
     def run_async(self, func):
@@ -151,7 +157,7 @@ class BulkMerger(tk.Tk):
             if not token:
                 self.after(0, lambda: messagebox.showerror("Error", "Please enter a GitHub token"))
                 return
-            self.after(0, lambda: self.set_status("Loading repositories...") )
+            self.after(0, lambda: self.set_status("Loading repositories...", progress=0))
             repo_names = []
             if token == self.config_token and self.cached_repos:
                 repo_names = self.cached_repos
@@ -159,6 +165,7 @@ class BulkMerger(tk.Tk):
                 g = Github(token, per_page=100)
                 try:
                     repos = list(g.get_user().get_repos())
+                    self.after(0, lambda: self.set_status("Loading repositories...", progress=50))
                 except GithubException as e:
                     self.after(0, lambda: messagebox.showerror("Error", f"Failed to load repositories: {e.data}"))
                     self.after(0, lambda: self.set_status("Ready"))
@@ -178,7 +185,7 @@ class BulkMerger(tk.Tk):
                 if repo_names:
                     self.repo_combo.current(0)
                     self.repo_var.set(repo_names[0])
-                self.set_status("Ready")
+                self.set_status("Ready", progress=100)
             self.after(0, update_combo)
         self.run_async(worker)
 
@@ -186,10 +193,11 @@ class BulkMerger(tk.Tk):
         def worker():
             token = self.token_var.get()
             repo_name = self.repo_var.get()
-            self.after(0, lambda: self.set_status("Loading pull requests...") )
+            self.after(0, lambda: self.set_status("Loading pull requests...", progress=0))
             g = Github(token, per_page=100)
             repo = g.get_repo(repo_name)
             prs = [pr for pr in repo.get_pulls(state=state, sort="created") if state != "closed" or pr.merged]
+            self.after(0, lambda: self.set_status("Loading pull requests...", progress=50))
             def update_ui():
                 self.prs = prs
                 for widget in self.pr_frame.winfo_children():
@@ -200,7 +208,7 @@ class BulkMerger(tk.Tk):
                     ttk.Checkbutton(self.pr_frame, text=f"#{pr.number}: {pr.title}", variable=var).grid(row=i, column=0, sticky=tk.W)
                     self.pr_vars.append(var)
                 self.log(f"Loaded {len(self.prs)} pull requests.")
-                self.set_status("Ready")
+                self.set_status("Ready", progress=100)
             self.after(0, update_ui)
         self.run_async(worker)
 
@@ -218,38 +226,45 @@ class BulkMerger(tk.Tk):
         subprocess.run(["git", "commit", "-am", f"Auto-merge PR {pr_branch}"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         subprocess.run(["git", "push", "origin", base_branch], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         os.chdir(cwd)
-        self.set_status("Ready")
+        self.set_status("Ready", progress=100)
         return True, "Conflict resolved"
 
     def merge_selected(self):
-        self.set_status("Merging...")
+        selected = [pr for var, pr in zip(self.pr_vars, self.prs) if var.get()]
+        total = len(selected)
+        self.set_status("Merging...", progress=0)
         token = self.token_var.get()
         repo_name = self.repo_var.get()
         g = Github(token, per_page=100)
         repo = g.get_repo(repo_name)
-        for var, pr in zip(self.pr_vars, self.prs):
-            if var.get():
-                try:
-                    pr.merge()
-                    self.log(f"Merged PR #{pr.number}")
-                except GithubException as e:
-                    if "Merge conflict" in str(e.data):
-                        self.log(f"Conflict in PR #{pr.number}, attempting auto resolution...")
-                        status, detail = self.attempt_conflict_resolution(
-                            repo.clone_url.replace("https://", f"https://{token}@"),
-                            pr.base.ref,
-                            pr.head.ref,
-                        )
-                        if status:
-                            self.log(f"Resolved conflicts for PR #{pr.number}")
-                        else:
-                            self.log(f"Failed to resolve conflicts for PR #{pr.number}: {detail}")
+        done = 0
+        for pr in selected:
+            try:
+                pr.merge()
+                self.log(f"Merged PR #{pr.number}")
+            except GithubException as e:
+                if "Merge conflict" in str(e.data):
+                    self.log(f"Conflict in PR #{pr.number}, attempting auto resolution...")
+                    status, detail = self.attempt_conflict_resolution(
+                        repo.clone_url.replace("https://", f"https://{token}@"),
+                        pr.base.ref,
+                        pr.head.ref,
+                    )
+                    if status:
+                        self.log(f"Resolved conflicts for PR #{pr.number}")
                     else:
-                        self.log(f"Failed to merge PR #{pr.number}: {e.data}")
-        self.set_status("Ready")
+                        self.log(f"Failed to resolve conflicts for PR #{pr.number}: {detail}")
+                else:
+                    self.log(f"Failed to merge PR #{pr.number}: {e.data}")
+            done += 1
+            percent = (done / total) * 100 if total else 100
+            self.set_status(f"Merging... ({done}/{total})", progress=percent)
+        self.set_status("Ready", progress=100)
 
     def revert_selected(self):
-        self.set_status("Reverting...")
+        selected = [pr for var, pr in zip(self.pr_vars, self.prs) if var.get()]
+        total = len(selected)
+        self.set_status("Reverting...", progress=0)
         token = self.token_var.get()
         repo_name = self.repo_var.get()
         g = Github(token, per_page=100)
@@ -259,54 +274,68 @@ class BulkMerger(tk.Tk):
         cwd = os.getcwd()
         os.chdir(repo_path)
         subprocess.run(["git", "pull"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        for var, pr in zip(self.pr_vars, self.prs):
-            if var.get():
-                if not pr.merged:
-                    self.log(f"PR #{pr.number} not merged; skipping")
-                    continue
-                subprocess.run(["git", "checkout", pr.base.ref], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                subprocess.run(["git", "pull", "origin", pr.base.ref], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                revert_proc = subprocess.run([
-                    "git",
-                    "revert",
-                    "-m",
-                    "1",
-                    pr.merge_commit_sha,
-                ], capture_output=True)
-                if revert_proc.returncode == 0:
-                    subprocess.run(["git", "push", "origin", pr.base.ref], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    self.log(f"Reverted PR #{pr.number}")
-                else:
-                    self.log(
-                        f"Failed to revert PR #{pr.number}: {revert_proc.stderr.decode()}"
-                    )
+        done = 0
+        for pr in selected:
+            if not pr.merged:
+                self.log(f"PR #{pr.number} not merged; skipping")
+                done += 1
+                percent = (done / total) * 100 if total else 100
+                self.set_status(f"Reverting... ({done}/{total})", progress=percent)
+                continue
+            subprocess.run(["git", "checkout", pr.base.ref], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(["git", "pull", "origin", pr.base.ref], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            revert_proc = subprocess.run([
+                "git",
+                "revert",
+                "-m",
+                "1",
+                pr.merge_commit_sha,
+            ], capture_output=True)
+            if revert_proc.returncode == 0:
+                subprocess.run(["git", "push", "origin", pr.base.ref], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                self.log(f"Reverted PR #{pr.number}")
+            else:
+                self.log(
+                    f"Failed to revert PR #{pr.number}: {revert_proc.stderr.decode()}"
+                )
+            done += 1
+            percent = (done / total) * 100 if total else 100
+            self.set_status(f"Reverting... ({done}/{total})", progress=percent)
         os.chdir(cwd)
 
     def open_selected(self):
-        self.set_status("Opening...")
+        selected = [pr for var, pr in zip(self.pr_vars, self.prs) if var.get()]
+        total = len(selected)
+        self.set_status("Opening...", progress=0)
         count = 0
-        for var, pr in zip(self.pr_vars, self.prs):
-            if var.get():
-                webbrowser.open_new(pr.html_url)
-                count += 1
+        for i, pr in enumerate(selected, 1):
+            webbrowser.open_new(pr.html_url)
+            count += 1
+            percent = (i / total) * 100 if total else 100
+            self.set_status(f"Opening... ({i}/{total})", progress=percent)
         if count:
             self.log(f"Opened {count} pull request{'s' if count > 1 else ''} in browser.")
-        self.set_status("Ready")
+        self.set_status("Ready", progress=100)
 
     def close_selected(self):
-        self.set_status("Closing PRs...")
+        selected = [pr for var, pr in zip(self.pr_vars, self.prs) if var.get() and pr.state != "closed"]
+        total = len(selected)
+        self.set_status("Closing PRs...", progress=0)
         token = self.token_var.get()
         repo_name = self.repo_var.get()
         g = Github(token, per_page=100)
         repo = g.get_repo(repo_name)
-        for var, pr in zip(self.pr_vars, self.prs):
-            if var.get() and pr.state != "closed":
-                try:
-                    pr.edit(state="closed")
-                    self.log(f"Closed PR #{pr.number}")
-                except GithubException as e:
-                    self.log(f"Failed to close PR #{pr.number}: {e.data}")
-        self.set_status("Ready")
+        done = 0
+        for pr in selected:
+            try:
+                pr.edit(state="closed")
+                self.log(f"Closed PR #{pr.number}")
+            except GithubException as e:
+                self.log(f"Failed to close PR #{pr.number}: {e.data}")
+            done += 1
+            percent = (done / total) * 100 if total else 100
+            self.set_status(f"Closing PRs... ({done}/{total})", progress=percent)
+        self.set_status("Ready", progress=100)
 
     def manage_branches(self):
         token = self.token_var.get()
@@ -332,10 +361,10 @@ class BranchManager(tk.Toplevel):
         self.create_widgets()
         self.load_branches()
 
-    def set_status(self, message):
+    def set_status(self, message, progress=None):
         self.status_var.set(message)
         self.update_idletasks()
-        self.master.set_status(message)
+        self.master.set_status(message, progress)
 
     def create_widgets(self):
         frm = ttk.Frame(self)
@@ -388,10 +417,11 @@ class BranchManager(tk.Toplevel):
         self.menu.tk_popup(event.x_root, event.y_root)
 
     def refresh_branches(self):
-        self.set_status("Refreshing branches...")
+        self.set_status("Refreshing branches...", progress=0)
         branch_cache.pop(self.repo_name, None)
         save_branch_cache(branch_cache)
         self.load_branches(force=True)
+        self.set_status("Refreshing branches...", progress=50)
 
     def load_branches(self, force=False):
         def worker():
@@ -399,7 +429,7 @@ class BranchManager(tk.Toplevel):
             if cached:
                 branches = [(name, datetime.datetime.fromisoformat(dt)) for name, dt in cached]
             else:
-                self.master.after(0, lambda: self.set_status("Loading branches..."))
+                self.master.after(0, lambda: self.set_status("Loading branches...", progress=0))
                 g = Github(self.token, per_page=100)
                 repo = g.get_repo(self.repo_name)
                 branches = []
@@ -412,6 +442,8 @@ class BranchManager(tk.Toplevel):
             repo = g.get_repo(self.repo_name)
             owner = self.repo_name.split("/")[0]
             statuses = {}
+            total = len(branches)
+            done = 0
             for name, _ in branches:
                 try:
                     prs = repo.get_pulls(state="all", head=f"{owner}:{name}")
@@ -428,13 +460,16 @@ class BranchManager(tk.Toplevel):
                 except GithubException:
                     status = "error"
                 statuses[name] = status
+                done += 1
+                percent = (done / total) * 100 if total else 100
+                self.master.after(0, lambda p=percent, d=done, t=total: self.set_status(f"Loading branches... ({d}/{t})", progress=p))
             branches.sort(key=lambda x: x[1], reverse=True)
 
             def update():
                 self.branches = branches
                 self.branch_statuses = statuses
                 self.apply_filters()
-                self.set_status("Ready")
+                self.set_status("Ready", progress=100)
 
             self.after(0, update)
 
@@ -482,10 +517,12 @@ class BranchManager(tk.Toplevel):
         confirm = messagebox.askyesno("Confirm", "Delete checked branches?")
         if not confirm:
             return
-        self.set_status("Deleting branches...")
+        to_delete = [name for name, var in self.branch_vars.items() if var.get()]
+        total = len(to_delete)
+        self.set_status("Deleting branches...", progress=0)
         g = Github(self.token, per_page=100)
         repo = g.get_repo(self.repo_name)
-        to_delete = [name for name, var in self.branch_vars.items() if var.get()]
+        done = 0
         for name in to_delete:
             try:
                 ref = repo.get_git_ref(f"heads/{name}")
@@ -498,9 +535,13 @@ class BranchManager(tk.Toplevel):
                     ]
             except GithubException as e:
                 messagebox.showerror("Error", f"Failed to delete {name}: {e.data}")
+            finally:
+                done += 1
+                percent = (done / total) * 100 if total else 100
+                self.set_status(f"Deleting branches... ({done}/{total})", progress=percent)
         save_branch_cache(branch_cache)
         self.load_branches()
-        self.set_status("Ready")
+        self.set_status("Ready", progress=100)
 
 
 def main():
