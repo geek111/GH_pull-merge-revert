@@ -370,15 +370,21 @@ class BranchManager(tk.Toplevel):
 
         btn_frame = ttk.Frame(frm)
         btn_frame.pack(fill=tk.X, pady=5)
+        ttk.Button(btn_frame, text="Refresh", command=self.refresh_branches).pack(side=tk.LEFT)
         ttk.Button(btn_frame, text="Delete Checked", command=self.delete_checked).pack(side=tk.RIGHT)
 
     def show_context_menu(self, event):
         self.tree.focus_set()
         self.menu.tk_popup(event.x_root, event.y_root)
 
-    def load_branches(self):
+    def refresh_branches(self):
+        branch_cache.pop(self.repo_name, None)
+        save_branch_cache(branch_cache)
+        self.load_branches(force=True)
+
+    def load_branches(self, force=False):
         def worker():
-            cached = branch_cache.get(self.repo_name)
+            cached = None if force else branch_cache.get(self.repo_name)
             if cached:
                 branches = [(name, datetime.datetime.fromisoformat(dt)) for name, dt in cached]
             else:
