@@ -10,7 +10,9 @@ import tkinter.font as tkfont
 
 from github import Github
 from github.GithubException import GithubException
+from github.PullRequest import PullRequest
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 def blend_colors(widget, fg, bg, alpha=0.5):
@@ -25,7 +27,8 @@ def blend_colors(widget, fg, bg, alpha=0.5):
 CONFIG_FILE = "config.json"
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
-__version__ = "1.1.0"
+PR_CACHE_FILE = "pr_cache.json"
+__version__ = "1.3.0"
 
 
 def load_branch_cache():
@@ -44,6 +47,24 @@ def save_branch_cache(cache):
 
 
 branch_cache = load_branch_cache()
+
+
+def load_pr_cache():
+    if os.path.exists(PR_CACHE_FILE):
+        try:
+            with open(PR_CACHE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def save_pr_cache(cache):
+    with open(PR_CACHE_FILE, "w", encoding="utf-8") as f:
+        json.dump(cache, f)
+
+
+pr_cache = load_pr_cache()
 
 
 class BulkMerger(tk.Tk):
@@ -89,8 +110,10 @@ class BulkMerger(tk.Tk):
 
         btn_load = ttk.Button(frm, text="Load PRs", command=self.load_prs)
         btn_load.grid(row=2, column=0, pady=5)
-        btn_load_closed = ttk.Button(frm, text="Load Merged PRs", command=lambda: self.load_prs(state="closed"))
-        btn_load_closed.grid(row=2, column=1, pady=5, sticky=tk.E)
+        btn_refresh_prs = ttk.Button(frm, text="Refresh PRs", command=lambda: self.load_prs(force=True))
+        btn_refresh_prs.grid(row=2, column=1, pady=5, sticky=tk.E)
+        btn_load_closed = ttk.Button(frm, text="Load Merged PRs", command=lambda: self.load_prs(state="closed", force=True))
+        btn_load_closed.grid(row=2, column=2, pady=5, sticky=tk.E)
 
         btn_merge = ttk.Button(frm, text="Merge Selected", command=self.merge_selected)
         btn_merge.grid(row=3, column=0, pady=5)
@@ -238,14 +261,26 @@ class BulkMerger(tk.Tk):
             self.after(0, update_combo)
         self.run_async(worker)
 
-    def load_prs(self, state="open"):
+    def load_prs(self, state="open", force=False):
         def worker():
             token = self.token_var.get()
             repo_name = self.repo_var.get()
             self.after(0, lambda: (self.set_status("Loading pull requests..."), self.reset_progress()))
-            g = Github(token, per_page=100)
-            repo = g.get_repo(repo_name)
-            prs = [pr for pr in repo.get_pulls(state=state, sort="created") if state != "closed" or pr.merged]
+            cache_key = f"{repo_name}:{state}"
+            prs = []
+            if not force and cache_key in pr_cache:
+                g = Github(token, per_page=100)
+                requester = g._Github__requester
+                for data in pr_cache[cache_key]:
+                    prs.append(PullRequest(requester, attributes=data, completed=True))
+            else:
+                g = Github(token, per_page=100)
+                repo = g.get_repo(repo_name)
+                fetched = [pr for pr in repo.get_pulls(state=state, sort="created") if state != "closed" or pr.merged]
+                pr_cache[cache_key] = [pr.raw_data for pr in fetched]
+                save_pr_cache(pr_cache)
+                prs = fetched
+
             def update_ui():
                 self.prs = prs
                 for widget in self.pr_frame.winfo_children():
@@ -263,7 +298,9 @@ class BulkMerger(tk.Tk):
                 self.set_progress(100)
                 self.set_status("Ready")
                 PullRequestList(self, token, repo_name)
+
             self.after(0, update_ui)
+
         self.run_async(worker)
 
     def attempt_conflict_resolution(self, repo_url, base_branch, pr_branch):
@@ -528,24 +565,28 @@ class BranchManager(tk.Toplevel):
             repo = g.get_repo(self.repo_name)
             owner = self.repo_name.split("/")[0]
             statuses = {}
-            for idx, (name, _) in enumerate(branches):
+
+            def get_status(branch_name):
                 try:
-                    prs = repo.get_pulls(state="all", head=f"{owner}:{name}")
+                    prs = repo.get_pulls(state="all", head=f"{owner}:{branch_name}")
                     status = "no PR"
                     for pr in prs:
                         if pr.state == "open":
-                            status = "open"
-                            break
+                            return "open"
                         if pr.merged:
-                            status = "merged"
-                            break
-                        status = "closed"
-                        break
+                            return "merged"
+                        return "closed"
+                    return status
                 except GithubException:
-                    status = "error"
-                statuses[name] = status
-                progress = ((total + idx + 1) / (total * 2)) * 100 if total else 100
-                self.after(0, lambda p=progress: self.set_progress(p))
+                    return "error"
+
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                future_to_branch = {executor.submit(get_status, name): name for name, _ in branches}
+                for idx, future in enumerate(as_completed(future_to_branch)):
+                    name = future_to_branch[future]
+                    statuses[name] = future.result()
+                    progress = ((total + idx + 1) / (total * 2)) * 100 if total else 100
+                    self.after(0, lambda p=progress: self.set_progress(p))
             branches.sort(key=lambda x: x[1], reverse=True)
 
             def update():
