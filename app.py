@@ -48,6 +48,7 @@ class BulkMerger(tk.Tk):
         self.cached_repos = []
         self.config_token = ""
         self.status_var = tk.StringVar(value="Ready")
+        self.pr_list_window = None
         self.load_config()
         self.create_widgets()
         self.prs = []
@@ -71,6 +72,8 @@ class BulkMerger(tk.Tk):
         btn_load.grid(row=2, column=0, pady=5)
         btn_load_closed = ttk.Button(frm, text="Load Merged PRs", command=lambda: self.load_prs(state="closed"))
         btn_load_closed.grid(row=2, column=1, pady=5, sticky=tk.E)
+        btn_pr_list = ttk.Button(frm, text="View PR List", command=self.view_pr_list)
+        btn_pr_list.grid(row=2, column=2, pady=5, sticky=tk.E)
 
         btn_merge = ttk.Button(frm, text="Merge Selected", command=self.merge_selected)
         btn_merge.grid(row=3, column=0, pady=5)
@@ -97,6 +100,8 @@ class BulkMerger(tk.Tk):
         frm.columnconfigure(0, weight=1)
         frm.columnconfigure(1, weight=1)
         frm.columnconfigure(2, weight=1)
+        frm.columnconfigure(3, weight=1)
+        frm.columnconfigure(4, weight=1)
 
         self.text_output = tk.Text(frm, height=10)
         self.text_output.grid(row=5, column=0, columnspan=4, sticky=tk.EW)
@@ -201,6 +206,7 @@ class BulkMerger(tk.Tk):
                     self.pr_vars.append(var)
                 self.log(f"Loaded {len(self.prs)} pull requests.")
                 self.set_status("Ready")
+                self.view_pr_list(prs=self.prs, state=state)
             self.after(0, update_ui)
         self.run_async(worker)
 
@@ -316,6 +322,15 @@ class BulkMerger(tk.Tk):
             return
         self.set_status("Opening branch manager...")
         BranchManager(self, token, repo_name)
+
+    def view_pr_list(self, prs=None, state="all"):
+        token = self.token_var.get()
+        repo_name = self.repo_var.get()
+        if not token or not repo_name:
+            messagebox.showerror("Error", "Load repository first")
+            return
+        self.set_status("Opening PR list...")
+        self.pr_list_window = PullRequestList(self, token, repo_name, prs=prs, state=state)
 
 
 class BranchManager(tk.Toplevel):
@@ -466,6 +481,73 @@ class BranchManager(tk.Toplevel):
                 messagebox.showerror("Error", f"Failed to delete {name}: {e.data}")
         save_branch_cache(branch_cache)
         self.load_branches()
+
+
+class PullRequestList(tk.Toplevel):
+    def __init__(self, master, token, repo_name, prs=None, state="all"):
+        super().__init__(master)
+        self.title("Pull Request List")
+        self.geometry("500x400")
+        self.token = token
+        self.repo_name = repo_name
+        self.prs = prs
+        self.state = state
+        self.create_widgets()
+        if self.prs is not None:
+            self.populate_tree()
+        else:
+            self.load_prs()
+
+    def create_widgets(self):
+        frm = ttk.Frame(self)
+        frm.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        self.tree = ttk.Treeview(
+            frm,
+            columns=("number", "title", "state"),
+            show="headings",
+            selectmode="browse",
+        )
+        self.tree.heading("number", text="Number")
+        self.tree.heading("title", text="Title")
+        self.tree.heading("state", text="State")
+        self.tree.column("number", width=80, anchor="center")
+        self.tree.column("title", width=280)
+        self.tree.column("state", width=100, anchor="center")
+        self.tree.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
+        scroll = ttk.Scrollbar(frm, orient="vertical", command=self.tree.yview)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree.configure(yscrollcommand=scroll.set)
+
+        btn_frame = ttk.Frame(self)
+        btn_frame.pack(fill=tk.X, pady=5)
+        ttk.Button(btn_frame, text="Refresh", command=self.load_prs).pack(side=tk.LEFT)
+
+    def populate_tree(self):
+        self.tree.delete(*self.tree.get_children())
+        for pr in self.prs:
+            self.tree.insert("", "end", values=(pr.number, pr.title, pr.state))
+
+    def load_prs(self):
+        def worker():
+            self.master.set_status("Loading PR list...")
+            g = Github(self.token, per_page=100)
+            repo = g.get_repo(self.repo_name)
+            if self.state == "closed":
+                prs = [pr for pr in repo.get_pulls(state="closed", sort="created") if pr.merged]
+            elif self.state == "open":
+                prs = list(repo.get_pulls(state="open", sort="created"))
+            else:
+                prs = list(repo.get_pulls(state="all", sort="created"))
+
+            def update():
+                self.prs = prs
+                self.populate_tree()
+                self.master.set_status("Ready")
+
+            self.master.after(0, update)
+
+        self.master.run_async(worker)
 
 
 def main():

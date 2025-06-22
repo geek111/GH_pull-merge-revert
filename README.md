@@ -25,8 +25,10 @@ python app.py
 
 After providing your GitHub token click **Load Repos** to fetch repositories
 available to the token. Choose one from the drop-down and use **Load PRs** to
-fetch open pull requests. You can load previously merged pull requests with
-**Load Merged PRs**. Select the ones you want
+fetch open pull requests. A new window listing them will open automatically.
+You can load previously merged pull requests with **Load Merged PRs** or
+reopen the list using **View PR List**.
+Select the ones you want
 to merge or revert, then click **Merge Selected** or **Revert Selected**.
 Branches can be inspected with **Manage Branches** which opens a window
 listing branch names sorted by commit date with filtering options and a button
