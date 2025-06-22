@@ -4,6 +4,7 @@ import tempfile
 import subprocess
 import webbrowser
 import datetime
+import concurrent.futures
 import tkinter as tk
 from tkinter import ttk, messagebox
 import tkinter.font as tkfont
@@ -25,7 +26,8 @@ def blend_colors(widget, fg, bg, alpha=0.5):
 CONFIG_FILE = "config.json"
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
-__version__ = "1.1.0"
+PR_STATUS_WORKERS = 8
+__version__ = "1.2.0"
 
 
 def load_branch_cache():
@@ -528,24 +530,28 @@ class BranchManager(tk.Toplevel):
             repo = g.get_repo(self.repo_name)
             owner = self.repo_name.split("/")[0]
             statuses = {}
-            for idx, (name, _) in enumerate(branches):
+
+            def fetch_status(name):
                 try:
                     prs = repo.get_pulls(state="all", head=f"{owner}:{name}")
-                    status = "no PR"
                     for pr in prs:
                         if pr.state == "open":
-                            status = "open"
-                            break
+                            return name, "open"
                         if pr.merged:
-                            status = "merged"
-                            break
-                        status = "closed"
-                        break
+                            return name, "merged"
+                        return name, "closed"
+                    return name, "no PR"
                 except GithubException:
-                    status = "error"
-                statuses[name] = status
-                progress = ((total + idx + 1) / (total * 2)) * 100 if total else 100
-                self.after(0, lambda p=progress: self.set_progress(p))
+                    return name, "error"
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=PR_STATUS_WORKERS) as executor:
+                future_to_name = {executor.submit(fetch_status, name): name for name, _ in branches}
+                total_status = len(future_to_name)
+                for idx, future in enumerate(concurrent.futures.as_completed(future_to_name)):
+                    name, status = future.result()
+                    statuses[name] = status
+                    progress = ((total + idx + 1) / (total * 2)) * 100 if total else 100
+                    self.after(0, lambda p=progress: self.set_progress(p))
             branches.sort(key=lambda x: x[1], reverse=True)
 
             def update():
