@@ -5,11 +5,22 @@ import subprocess
 import webbrowser
 import datetime
 import tkinter as tk
-from tkinter import ttk, messagebox, font
+from tkinter import ttk, messagebox
+import tkinter.font as tkfont
 
 from github import Github
 from github.GithubException import GithubException
 import threading
+
+
+def blend_colors(widget, fg, bg, alpha=0.5):
+    """Return blended color between fg and bg with given alpha."""
+    fg_rgb = widget.winfo_rgb(fg)
+    bg_rgb = widget.winfo_rgb(bg)
+    r = int(fg_rgb[0] * alpha + bg_rgb[0] * (1 - alpha)) // 256
+    g = int(fg_rgb[1] * alpha + bg_rgb[1] * (1 - alpha)) // 256
+    b = int(fg_rgb[2] * alpha + bg_rgb[2] * (1 - alpha)) // 256
+    return f"#{r:02x}{g:02x}{b:02x}"
 
 CONFIG_FILE = "config.json"
 CACHE_DIR = "repo_cache"
@@ -38,11 +49,12 @@ branch_cache = load_branch_cache()
 class BulkMerger(tk.Tk):
     def __init__(self):
         super().__init__()
-        default_font = tk.font.nametofont("TkDefaultFont")
+        default_font = tkfont.nametofont("TkDefaultFont")
         default_font.configure(size=13)
         self.option_add("*Font", default_font)
         self.title("GitHub Bulk Merger")
         self.geometry("600x400")
+        # style for widgets will be configured after frames are created
         self.token_var = tk.StringVar()
         self.repo_var = tk.StringVar()
         self.pr_vars = []
@@ -61,6 +73,9 @@ class BulkMerger(tk.Tk):
     def create_widgets(self):
         frm = ttk.Frame(self)
         frm.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+
+        # get window background to mimic transparency
+        status_bg = self.cget("bg")
 
         ttk.Label(frm, text="GitHub Token:").grid(row=0, column=0, sticky=tk.W)
         ttk.Entry(frm, textvariable=self.token_var, show="*").grid(row=0, column=1, sticky=tk.EW)
@@ -106,14 +121,29 @@ class BulkMerger(tk.Tk):
 
         self.text_output = tk.Text(frm, height=10)
         self.text_output.grid(row=5, column=0, columnspan=4, sticky=tk.EW)
-        ttk.Label(frm, textvariable=self.status_var).grid(row=6, column=0, columnspan=4, sticky=tk.W)
+        self.status_label = tk.Label(
+            frm,
+            textvariable=self.status_var,
+            bg=status_bg,
+            borderwidth=0,
+        )
+        self.status_label.grid(row=6, column=0, columnspan=4, sticky=tk.W)
         progress_frame = ttk.Frame(frm)
         progress_frame.grid(row=7, column=0, columnspan=4, sticky=tk.EW, pady=5)
+        progress_frame.columnconfigure(0, weight=1)
+        self.progress_text = tk.StringVar(value="0%")
+        self.progress_label = tk.Label(
+            progress_frame,
+            textvariable=self.progress_text,
+            bg=status_bg,
+            borderwidth=0,
+            anchor="center",
+        )
+        self.progress_label.grid(row=0, column=0, sticky="ew")
         self.progress = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
-        self.progress.pack(fill=tk.X)
-        self.progress_text = tk.StringVar(value="")
-        self.progress_label = ttk.Label(progress_frame, textvariable=self.progress_text, anchor="center")
-        self.progress_label.place(relx=0.5, rely=0.5, anchor="center")
+        self.progress.grid(row=1, column=0, sticky="ew")
+        faded = blend_colors(self.progress_label, self.progress_label.cget("fg"), status_bg, 0.5)
+        self.progress_label.configure(fg=faded)
 
     def log(self, message):
         self.text_output.insert(tk.END, message + "\n")
@@ -133,7 +163,7 @@ class BulkMerger(tk.Tk):
         self.set_progress(0)
 
     def update_progress_text(self):
-        self.progress_text.set(f"{self.status_var.get()} {int(self.progress_var.get())}%")
+        self.progress_text.set(f"{int(self.progress_var.get())}%")
 
     def run_async(self, func):
         threading.Thread(target=func, daemon=True).start()
@@ -376,7 +406,7 @@ class BranchManager(tk.Toplevel):
         self.repo_name = repo_name
         self.status_var = tk.StringVar(value="Ready")
         self.progress_var = tk.DoubleVar(value=0)
-        self.progress_text = tk.StringVar(value="")
+        self.progress_text = tk.StringVar(value="0%")
         self.branch_vars = {}
         self.branches = []
         self.branch_statuses = {}
@@ -401,7 +431,7 @@ class BranchManager(tk.Toplevel):
         self.set_progress(0)
 
     def update_progress_text(self):
-        self.progress_text.set(f"{self.status_var.get()} {int(self.progress_var.get())}%")
+        self.progress_text.set(f"{int(self.progress_var.get())}%")
 
     def create_widgets(self):
         frm = ttk.Frame(self)
@@ -450,10 +480,20 @@ class BranchManager(tk.Toplevel):
         ttk.Label(frm, textvariable=self.status_var).pack(anchor=tk.W)
         progress_frame = ttk.Frame(frm)
         progress_frame.pack(fill=tk.X, pady=5)
+        progress_frame.columnconfigure(0, weight=1)
+        status_bg = self.master.cget("bg")
+        self.progress_label = tk.Label(
+            progress_frame,
+            textvariable=self.progress_text,
+            bg=status_bg,
+            borderwidth=0,
+            anchor="center",
+        )
+        self.progress_label.grid(row=0, column=0, sticky="ew")
         self.progress = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
-        self.progress.pack(fill=tk.X)
-        self.progress_label = ttk.Label(progress_frame, textvariable=self.progress_text, anchor="center")
-        self.progress_label.place(relx=0.5, rely=0.5, anchor="center")
+        self.progress.grid(row=1, column=0, sticky="ew")
+        faded = blend_colors(self.progress_label, self.progress_label.cget("fg"), status_bg, 0.5)
+        self.progress_label.configure(fg=faded)
 
     def show_context_menu(self, event):
         self.tree.focus_set()
