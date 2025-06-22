@@ -102,7 +102,14 @@ class BulkMerger(tk.Tk):
 
         self.text_output = tk.Text(frm, height=10)
         self.text_output.grid(row=5, column=0, columnspan=4, sticky=tk.EW)
-        ttk.Label(frm, textvariable=self.status_var).grid(row=6, column=0, columnspan=4, sticky=tk.W)
+        # use a standard Label with background matching the window
+        self.status_label = tk.Label(
+            frm,
+            textvariable=self.status_var,
+            bd=0,
+            bg=self.cget("background"),
+        )
+        self.status_label.grid(row=6, column=0, columnspan=4, sticky=tk.W)
         progress_frame = ttk.Frame(frm)
         progress_frame.grid(row=7, column=0, columnspan=4, sticky=tk.EW, pady=5)
         self.progress = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
