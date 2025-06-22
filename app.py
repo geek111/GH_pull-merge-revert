@@ -42,6 +42,7 @@ class BulkMerger(tk.Tk):
         self.option_add("*Font", default_font)
         self.title("GitHub Bulk Merger")
         self.geometry("600x400")
+        # style for widgets will be configured after frames are created
         self.token_var = tk.StringVar()
         self.repo_var = tk.StringVar()
         self.pr_vars = []
@@ -57,6 +58,10 @@ class BulkMerger(tk.Tk):
     def create_widgets(self):
         frm = ttk.Frame(self)
         frm.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+
+        # style the status label to match the frame background
+        style = ttk.Style()
+        style.configure("Transparent.TLabel", background=frm.cget("background"))
 
         ttk.Label(frm, text="GitHub Token:").grid(row=0, column=0, sticky=tk.W)
         ttk.Entry(frm, textvariable=self.token_var, show="*").grid(row=0, column=1, sticky=tk.EW)
@@ -102,7 +107,10 @@ class BulkMerger(tk.Tk):
 
         self.text_output = tk.Text(frm, height=10)
         self.text_output.grid(row=5, column=0, columnspan=4, sticky=tk.EW)
-        ttk.Label(frm, textvariable=self.status_var).grid(row=6, column=0, columnspan=4, sticky=tk.W)
+        self.status_label = ttk.Label(
+            frm, textvariable=self.status_var, style="Transparent.TLabel"
+        )
+        self.status_label.grid(row=6, column=0, columnspan=4, sticky=tk.W)
         progress_frame = ttk.Frame(frm)
         progress_frame.grid(row=7, column=0, columnspan=4, sticky=tk.EW, pady=5)
         self.progress = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
