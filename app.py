@@ -108,7 +108,14 @@ class BulkMerger(tk.Tk):
         self.progress = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
         self.progress.pack(fill=tk.X)
         self.progress_text = tk.StringVar(value="")
-        self.progress_label = ttk.Label(progress_frame, textvariable=self.progress_text, anchor="center")
+        style = ttk.Style()
+        style.configure("Transparent.TLabel", background="")
+        self.progress_label = ttk.Label(
+            progress_frame,
+            textvariable=self.progress_text,
+            anchor="center",
+            style="Transparent.TLabel",
+        )
         self.progress_label.place(relx=0.5, rely=0.5, anchor="center")
 
     def log(self, message):
@@ -445,7 +452,14 @@ class BranchManager(tk.Toplevel):
         progress_frame.pack(fill=tk.X, pady=5)
         self.progress = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
         self.progress.pack(fill=tk.X)
-        self.progress_label = ttk.Label(progress_frame, textvariable=self.progress_text, anchor="center")
+        style = ttk.Style()
+        style.configure("Transparent.TLabel", background="")
+        self.progress_label = ttk.Label(
+            progress_frame,
+            textvariable=self.progress_text,
+            anchor="center",
+            style="Transparent.TLabel",
+        )
         self.progress_label.place(relx=0.5, rely=0.5, anchor="center")
 
     def show_context_menu(self, event):
