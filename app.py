@@ -49,6 +49,10 @@ class BulkMerger(tk.Tk):
         self.config_token = ""
         self.status_var = tk.StringVar(value="Ready")
         self.progress_var = tk.DoubleVar(value=0)
+        self.style = ttk.Style(self)
+        self.style.configure(
+            "Transparent.TLabel", background=self.cget("background")
+        )
         self.load_config()
         self.create_widgets()
         self.prs = []
@@ -102,7 +106,11 @@ class BulkMerger(tk.Tk):
 
         self.text_output = tk.Text(frm, height=10)
         self.text_output.grid(row=5, column=0, columnspan=4, sticky=tk.EW)
-        ttk.Label(frm, textvariable=self.status_var).grid(row=6, column=0, columnspan=4, sticky=tk.W)
+        ttk.Label(
+            frm,
+            textvariable=self.status_var,
+            style="Transparent.TLabel",
+        ).grid(row=6, column=0, columnspan=4, sticky=tk.W)
         progress_frame = ttk.Frame(frm)
         progress_frame.grid(row=7, column=0, columnspan=4, sticky=tk.EW, pady=5)
         self.progress = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
@@ -373,6 +381,10 @@ class BranchManager(tk.Toplevel):
         self.status_var = tk.StringVar(value="Ready")
         self.progress_var = tk.DoubleVar(value=0)
         self.progress_text = tk.StringVar(value="")
+        self.style = ttk.Style(self)
+        self.style.configure(
+            "Transparent.TLabel", background=self.cget("background")
+        )
         self.branch_vars = {}
         self.branches = []
         self.branch_statuses = {}
@@ -440,7 +452,11 @@ class BranchManager(tk.Toplevel):
         btn_frame.pack(fill=tk.X, pady=5)
         ttk.Button(btn_frame, text="Refresh", command=self.refresh_branches).pack(side=tk.LEFT)
         ttk.Button(btn_frame, text="Delete Checked", command=self.delete_checked).pack(side=tk.RIGHT)
-        ttk.Label(frm, textvariable=self.status_var).pack(anchor=tk.W)
+        ttk.Label(
+            frm,
+            textvariable=self.status_var,
+            style="Transparent.TLabel",
+        ).pack(anchor=tk.W)
         progress_frame = ttk.Frame(frm)
         progress_frame.pack(fill=tk.X, pady=5)
         self.progress = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
