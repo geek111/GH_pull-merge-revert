@@ -31,6 +31,8 @@ to merge or revert, then click **Merge Selected** or **Revert Selected**.
 Branches can be inspected with **Manage Branches** which opens a window
 listing branch names sorted by commit date with filtering options and a button
 to delete checked branches.
+The interface now includes a progress bar that displays the percentage
+completed whenever repositories, pull requests or branches are loading.
 The main window displays a status line showing progress when loading
 repositories, pull requests or branches. Branch lists are cached per repository
 to avoid fetching them repeatedly.
