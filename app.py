@@ -14,6 +14,7 @@ import threading
 CONFIG_FILE = "config.json"
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
+__version__ = "1.1.0"
 
 
 def load_branch_cache():
@@ -51,6 +52,9 @@ class BulkMerger(tk.Tk):
         self.progress_var = tk.DoubleVar(value=0)
         self.load_config()
         self.create_widgets()
+        self.update_idletasks()
+        self.geometry(f"{self.winfo_reqwidth()}x{self.winfo_reqheight()}")
+        self.minsize(self.winfo_width(), self.winfo_height())
         self.prs = []
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -377,6 +381,9 @@ class BranchManager(tk.Toplevel):
         self.branches = []
         self.branch_statuses = {}
         self.create_widgets()
+        self.update_idletasks()
+        self.geometry(f"{self.winfo_reqwidth()}x{self.winfo_reqheight()}")
+        self.minsize(self.winfo_width(), self.winfo_height())
         self.load_branches()
 
     def set_status(self, message):
@@ -583,6 +590,9 @@ class PullRequestList(tk.Toplevel):
         self.token = token
         self.repo_name = repo_name
         self.create_widgets()
+        self.update_idletasks()
+        self.geometry(f"{self.winfo_reqwidth()}x{self.winfo_reqheight()}")
+        self.minsize(self.winfo_width(), self.winfo_height())
         self.load_prs()
 
     def create_widgets(self):
