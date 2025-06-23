@@ -26,7 +26,7 @@ def blend_colors(widget, fg, bg, alpha=0.5):
 CONFIG_FILE = "config.json"
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 
 def load_branch_cache():
@@ -482,6 +482,15 @@ class BranchManager(tk.Toplevel):
                 self._sort_branches()
             self.apply_filters()
 
+    def _remove_branch(self, name):
+        """Remove a branch entry and refresh the view."""
+        self.branches = [b for b in self.branches if b[0] != name]
+        self.branch_statuses.pop(name, None)
+        self.branch_vars.pop(name, None)
+        if self.tree.exists(name):
+            self.tree.delete(name)
+        self.apply_filters()
+
     def create_widgets(self):
         frm = ttk.Frame(self)
         frm.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -655,24 +664,36 @@ class BranchManager(tk.Toplevel):
         if not confirm:
             return
         self.set_status("Deleting branches...")
-        g = Github(self.token, per_page=100)
-        repo = g.get_repo(self.repo_name)
+        self.reset_progress()
         to_delete = [name for name, var in self.branch_vars.items() if var.get()]
-        for name in to_delete:
-            try:
-                ref = repo.get_git_ref(f"heads/{name}")
-                ref.delete()
-                self.branch_vars.pop(name, None)
-                cached = branch_cache.get(self.repo_name)
-                if cached:
-                    branch_cache[self.repo_name] = [
-                        item for item in cached if item[0] != name
-                    ]
-            except GithubException as e:
-                messagebox.showerror("Error", f"Failed to delete {name}: {e.data}")
-        save_branch_cache(branch_cache)
-        self.load_branches()
-        self.set_status("Ready")
+        total = len(to_delete)
+
+        def worker():
+            g = Github(self.token, per_page=100)
+            repo = g.get_repo(self.repo_name)
+            for idx, name in enumerate(to_delete):
+                try:
+                    ref = repo.get_git_ref(f"heads/{name}")
+                    ref.delete()
+                    cached = branch_cache.get(self.repo_name)
+                    if cached:
+                        branch_cache[self.repo_name] = [
+                            item for item in cached if item[0] != name
+                        ]
+                    save_branch_cache(branch_cache)
+                    self.after(0, lambda n=name: self._remove_branch(n))
+                except GithubException as e:
+                    self.after(
+                        0,
+                        lambda n=name, err=e: messagebox.showerror(
+                            "Error", f"Failed to delete {n}: {err.data}"
+                        ),
+                    )
+                progress = ((idx + 1) / total) * 100 if total else 100
+                self.after(0, lambda p=progress: self.set_progress(p))
+            self.after(0, lambda: (self.set_status("Ready"), self.set_progress(100)))
+
+        self.master.run_async(worker)
 
 
 class PullRequestList(tk.Toplevel):
