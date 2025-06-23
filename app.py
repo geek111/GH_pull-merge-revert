@@ -23,10 +23,11 @@ def blend_colors(widget, fg, bg, alpha=0.5):
     b = int(fg_rgb[2] * alpha + bg_rgb[2] * (1 - alpha)) // 256
     return f"#{r:02x}{g:02x}{b:02x}"
 
-CONFIG_FILE = "config.json"
-CACHE_DIR = "repo_cache"
-BRANCH_CACHE_FILE = "branch_cache.json"
-__version__ = "1.3.0"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
+CACHE_DIR = os.path.join(BASE_DIR, "repo_cache")
+BRANCH_CACHE_FILE = os.path.join(BASE_DIR, "branch_cache.json")
+__version__ = "1.3.1"
 
 
 def load_branch_cache():
