@@ -408,6 +408,8 @@ class BranchManager(tk.Toplevel):
         self.geometry("500x400")
         self.token = token
         self.repo_name = repo_name
+        self.closed = False
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.status_var = tk.StringVar(value="Ready")
         self.progress_var = tk.DoubleVar(value=0)
         self.progress_text = tk.StringVar(value="0%")
@@ -435,6 +437,11 @@ class BranchManager(tk.Toplevel):
 
     def reset_progress(self):
         self.set_progress(0)
+
+    def on_close(self):
+        """Mark window as closed and destroy it."""
+        self.closed = True
+        self.destroy()
 
     def update_progress_text(self):
         self.progress_text.set(f"{int(self.progress_var.get())}%")
@@ -476,6 +483,8 @@ class BranchManager(tk.Toplevel):
 
     def _update_branch_status(self, name, status):
         """Update stored status for a branch and refresh filters."""
+        if self.closed:
+            return
         if name in self.branch_statuses:
             self.branch_statuses[name] = status
             if self.sort_column == "status":
@@ -612,9 +621,14 @@ class BranchManager(tk.Toplevel):
         self.master.run_async(worker)
 
     def apply_filters(self):
+        if self.closed:
+            return
         self._sort_branches()
-        name_f = self.name_filter.get().lower()
-        date_f = self.date_filter.get().strip()
+        try:
+            name_f = self.name_filter.get().lower()
+            date_f = self.date_filter.get().strip()
+        except tk.TclError:
+            return
         try:
             date_after = (
                 datetime.datetime.fromisoformat(date_f) if date_f else None
