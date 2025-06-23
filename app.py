@@ -25,7 +25,7 @@ def blend_colors(widget, fg, bg, alpha=0.5):
 CONFIG_FILE = "config.json"
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 
 def load_branch_cache():
@@ -164,6 +164,9 @@ class BulkMerger(tk.Tk):
 
     def update_progress_text(self):
         self.progress_text.set(f"{int(self.progress_var.get())}%")
+
+
+
 
     def run_async(self, func):
         threading.Thread(target=func, daemon=True).start()
@@ -433,6 +436,20 @@ class BranchManager(tk.Toplevel):
     def update_progress_text(self):
         self.progress_text.set(f"{int(self.progress_var.get())}%")
 
+    def _reset_branch_data(self):
+        """Clear tree and stored branch information."""
+        self.tree.delete(*self.tree.get_children())
+        self.branches = []
+        self.branch_statuses = {}
+        self.branch_vars = {}
+
+    def _add_branch(self, name, dt, status):
+        """Add a branch entry and refresh the view respecting filters."""
+        self.branches.append((name, dt))
+        self.branches.sort(key=lambda x: x[1], reverse=True)
+        self.branch_statuses[name] = status
+        self.apply_filters()
+
     def create_widgets(self):
         frm = ttk.Frame(self)
         frm.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -507,11 +524,11 @@ class BranchManager(tk.Toplevel):
 
     def load_branches(self, force=False):
         def worker():
+            self.after(0, lambda: (self._reset_branch_data(), self.set_status("Loading branches..."), self.reset_progress()))
             cached = None if force else branch_cache.get(self.repo_name)
             if cached:
                 branches = [(name, datetime.datetime.fromisoformat(dt)) for name, dt in cached]
             else:
-                self.master.after(0, lambda: (self.set_status("Loading branches..."), self.reset_progress()))
                 g = Github(self.token, per_page=100)
                 repo = g.get_repo(self.repo_name)
                 branches_list = list(repo.get_branches())
@@ -527,8 +544,8 @@ class BranchManager(tk.Toplevel):
             g = Github(self.token, per_page=100)
             repo = g.get_repo(self.repo_name)
             owner = self.repo_name.split("/")[0]
-            statuses = {}
-            for idx, (name, _) in enumerate(branches):
+            total = len(branches)
+            for idx, (name, dt) in enumerate(branches):
                 try:
                     prs = repo.get_pulls(state="all", head=f"{owner}:{name}")
                     status = "no PR"
@@ -543,19 +560,10 @@ class BranchManager(tk.Toplevel):
                         break
                 except GithubException:
                     status = "error"
-                statuses[name] = status
+                self.after(0, lambda n=name, d=dt, s=status: self._add_branch(n, d, s))
                 progress = ((total + idx + 1) / (total * 2)) * 100 if total else 100
                 self.after(0, lambda p=progress: self.set_progress(p))
-            branches.sort(key=lambda x: x[1], reverse=True)
-
-            def update():
-                self.branches = branches
-                self.branch_statuses = statuses
-                self.apply_filters()
-                self.set_progress(100)
-                self.set_status("Ready")
-
-            self.after(0, update)
+            self.after(0, lambda: (self.set_progress(100), self.set_status("Ready")))
 
         self.master.run_async(worker)
 
