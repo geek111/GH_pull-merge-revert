@@ -414,6 +414,8 @@ class BranchManager(tk.Toplevel):
         self.branch_vars = {}
         self.branches = []
         self.branch_statuses = {}
+        self.sort_column = "date"
+        self.sort_reverse = True
         self.create_widgets()
         self.update_idletasks()
         self.geometry(f"{self.winfo_reqwidth()}x{self.winfo_reqheight()}")
@@ -444,17 +446,40 @@ class BranchManager(tk.Toplevel):
         self.branch_statuses = {}
         self.branch_vars = {}
 
+    def _sort_branches(self):
+        """Sort branches based on the current sort settings."""
+        if self.sort_column == "branch":
+            key_func = lambda x: x[0].lower()
+        elif self.sort_column == "date":
+            key_func = lambda x: x[1]
+        else:  # status
+            key_func = lambda x: self.branch_statuses.get(x[0], "")
+        self.branches.sort(key=key_func, reverse=self.sort_reverse)
+
+    def sort_tree(self, column):
+        """Handle column header click to sort the tree."""
+        if self.sort_column == column:
+            self.sort_reverse = not self.sort_reverse
+        else:
+            self.sort_column = column
+            # default direction
+            self.sort_reverse = True if column == "date" else False
+        self._sort_branches()
+        self.apply_filters()
+
     def _add_branch(self, name, dt, status):
         """Add a branch entry and refresh the view respecting filters."""
         self.branches.append((name, dt))
-        self.branches.sort(key=lambda x: x[1], reverse=True)
         self.branch_statuses[name] = status
+        self._sort_branches()
         self.apply_filters()
 
     def _update_branch_status(self, name, status):
         """Update stored status for a branch and refresh filters."""
         if name in self.branch_statuses:
             self.branch_statuses[name] = status
+            if self.sort_column == "status":
+                self._sort_branches()
             self.apply_filters()
 
     def create_widgets(self):
@@ -479,9 +504,9 @@ class BranchManager(tk.Toplevel):
             selectmode="extended",
         )
         self.tree.heading("selected", text="")
-        self.tree.heading("branch", text="Branch")
-        self.tree.heading("date", text="Date")
-        self.tree.heading("status", text="Status")
+        self.tree.heading("branch", text="Branch", command=lambda: self.sort_tree("branch"))
+        self.tree.heading("date", text="Date", command=lambda: self.sort_tree("date"))
+        self.tree.heading("status", text="Status", command=lambda: self.sort_tree("status"))
         self.tree.column("selected", width=30, anchor="center")
         self.tree.column("branch", width=250)
         self.tree.column("date", width=150)
@@ -587,6 +612,7 @@ class BranchManager(tk.Toplevel):
         self.master.run_async(worker)
 
     def apply_filters(self):
+        self._sort_branches()
         name_f = self.name_filter.get().lower()
         date_f = self.date_filter.get().strip()
         try:
