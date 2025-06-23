@@ -25,7 +25,7 @@ def blend_colors(widget, fg, bg, alpha=0.5):
 CONFIG_FILE = "config.json"
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 
 def load_branch_cache():
@@ -509,26 +509,33 @@ class BranchManager(tk.Toplevel):
         def worker():
             cached = None if force else branch_cache.get(self.repo_name)
             if cached:
-                branches = [(name, datetime.datetime.fromisoformat(dt)) for name, dt in cached]
+                branch_list = [
+                    (name, datetime.datetime.fromisoformat(dt)) for name, dt in cached
+                ]
             else:
                 self.master.after(0, lambda: (self.set_status("Loading branches..."), self.reset_progress()))
                 g = Github(self.token, per_page=100)
                 repo = g.get_repo(self.repo_name)
-                branches_list = list(repo.get_branches())
-                total = len(branches_list)
-                branches = []
-                for idx, br in enumerate(branches_list):
+                branch_objs = list(repo.get_branches())
+                branch_list = []
+                for idx, br in enumerate(branch_objs):
                     dt = br.commit.commit.author.date
-                    branches.append((br.name, dt))
-                    progress = ((idx + 1) / (total * 2)) * 100 if total else 0
+                    branch_list.append((br.name, dt))
+                    progress = ((idx + 1) / (len(branch_objs) * 2)) * 100 if branch_objs else 0
                     self.after(0, lambda p=progress: self.set_progress(p))
-                branch_cache[self.repo_name] = [(b, d.isoformat()) for b, d in branches]
+                branch_cache[self.repo_name] = [(b, d.isoformat()) for b, d in branch_list]
                 save_branch_cache(branch_cache)
+
+            self.branches = []
+            self.branch_statuses = {}
+            self.branch_vars = {}
+            self.after(0, lambda: self.tree.delete(*self.tree.get_children()))
+
             g = Github(self.token, per_page=100)
             repo = g.get_repo(self.repo_name)
             owner = self.repo_name.split("/")[0]
-            statuses = {}
-            for idx, (name, _) in enumerate(branches):
+            total = len(branch_list)
+            for idx, (name, dt) in enumerate(branch_list):
                 try:
                     prs = repo.get_pulls(state="all", head=f"{owner}:{name}")
                     status = "no PR"
@@ -543,21 +550,23 @@ class BranchManager(tk.Toplevel):
                         break
                 except GithubException:
                     status = "error"
-                statuses[name] = status
-                progress = ((total + idx + 1) / (total * 2)) * 100 if total else 100
-                self.after(0, lambda p=progress: self.set_progress(p))
-            branches.sort(key=lambda x: x[1], reverse=True)
+                progress = ((idx + 1) / total) * 100 if total else 100
 
-            def update():
-                self.branches = branches
-                self.branch_statuses = statuses
-                self.apply_filters()
-                self.set_progress(100)
-                self.set_status("Ready")
+                def add(p=progress, n=name, d=dt, s=status):
+                    self.add_branch(n, d, s)
+                    self.set_progress(p)
 
-            self.after(0, update)
+                self.after(0, add)
+
+            self.after(0, lambda: (self.set_progress(100), self.set_status("Ready")))
 
         self.master.run_async(worker)
+
+    def add_branch(self, name, dt, status):
+        self.branches.append((name, dt))
+        self.branch_statuses[name] = status
+        self.branches.sort(key=lambda x: x[1], reverse=True)
+        self.apply_filters()
 
     def apply_filters(self):
         name_f = self.name_filter.get().lower()
