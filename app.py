@@ -11,6 +11,7 @@ import tkinter.font as tkfont
 from github import Github
 from github.GithubException import GithubException
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 def blend_colors(widget, fg, bg, alpha=0.5):
@@ -556,24 +557,31 @@ class BranchManager(tk.Toplevel):
             repo = g.get_repo(self.repo_name)
             owner = self.repo_name.split("/")[0]
             total = len(branches)
-            for idx, (name, dt) in enumerate(branches):
+
+            def fetch_status(branch_name):
                 try:
-                    prs = repo.get_pulls(state="all", head=f"{owner}:{name}")
+                    prs = repo.get_pulls(state="all", head=f"{owner}:{branch_name}")
                     status = "no PR"
                     for pr in prs:
                         if pr.state == "open":
-                            status = "open"
-                            break
+                            return "open"
                         if pr.merged:
-                            status = "merged"
-                            break
-                        status = "closed"
-                        break
+                            return "merged"
+                        return "closed"
+                    return status
                 except GithubException:
-                    status = "error"
-                self.after(0, lambda n=name, s=status: self._update_branch_status(n, s))
-                progress = ((total + idx + 1) / (total * 2)) * 100 if total else 100
-                self.after(0, lambda p=progress: self.set_progress(p))
+                    return "error"
+
+            completed = 0
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = {executor.submit(fetch_status, name): name for name, _ in branches}
+                for future in as_completed(futures):
+                    name = futures[future]
+                    status = future.result()
+                    self.after(0, lambda n=name, s=status: self._update_branch_status(n, s))
+                    completed += 1
+                    progress = ((total + completed) / (total * 2)) * 100 if total else 100
+                    self.after(0, lambda p=progress: self.set_progress(p))
             self.after(0, lambda: (self.set_progress(100), self.set_status("Ready")))
 
         self.master.run_async(worker)
