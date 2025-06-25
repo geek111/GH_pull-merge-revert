@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block content %}
+<h1>GitHub Bulk Merger Web</h1>
+<form method="post" action="{{ url_for('load_repos') }}">
+  <label>GitHub Token:</label>
+  <input type="password" name="token" value="{{ session.get('token', '') }}" required>
+  <button type="submit">Load Repos</button>
+</form>
+
+{% if session.get('repos') %}
+<form method="post" action="{{ url_for('load_prs') }}">
+  <label>Repository:</label>
+  <select name="repo">
+    {% for repo in session['repos'] %}
+    <option value="{{ repo }}" {% if repo==session.get('repo_name') %}selected{% endif %}>{{ repo }}</option>
+    {% endfor %}
+  </select>
+  <select name="state">
+    <option value="open" {% if session.get('state') != 'closed' %}selected{% endif %}>open</option>
+    <option value="closed" {% if session.get('state') == 'closed' %}selected{% endif %}>merged</option>
+  </select>
+  <button type="submit">Load PRs</button>
+</form>
+{% endif %}
+
+{% if session.get('prs') %}
+<form method="post" action="{{ url_for('operate') }}">
+  <table>
+  <tr><th></th><th>Pull Request</th></tr>
+  {% for pr in session['prs'] %}
+    <tr>
+      <td><input type="checkbox" name="selected" value="{{ pr.number }}"></td>
+      <td><a href="{{ pr.html_url }}" target="_blank">#{{ pr.number }}: {{ pr.title }}</a></td>
+    </tr>
+  {% endfor %}
+  </table>
+  <button name="action" value="merge">Merge Selected</button>
+  <button name="action" value="revert">Revert Selected</button>
+  <button name="action" value="close">Close Selected</button>
+</form>
+{% endif %}
+{% endblock %}

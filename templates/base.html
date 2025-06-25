@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>GitHub Bulk Merger Web</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2em; }
+    .container { max-width: 800px; margin: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    td, th { padding: 4px; border-bottom: 1px solid #ccc; }
+    .flashes { list-style: none; padding: 0; }
+    .flashes li { background: #f0f0f0; margin-bottom: 5px; padding: 5px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        <ul class="flashes">
+        {% for message in messages %}
+          <li>{{ message }}</li>
+        {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

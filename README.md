@@ -19,6 +19,14 @@ Install dependencies with:
 pip install -r requirements.txt
 ```
 
+## Running the web version
+
+```bash
+python web_app.py
+```
+
+Open `http://127.0.0.1:5000` in your browser and follow the prompts to load repositories and manage pull requests.
+
 ## Running
 
 ```bash
