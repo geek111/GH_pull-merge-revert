@@ -40,6 +40,14 @@ to avoid fetching them repeatedly.
 The script attempts to merge using the GitHub API and falls back to a local
 `git` merge with a simple conflict strategy if necessary.
 
+## Running the Web Version
+
+```bash
+python web_app.py
+```
+
+Open `http://localhost:5000` in your browser to use the web interface.
+
 ## Building an executable
 
 To create a Windows `.exe`, you can use [PyInstaller](https://pyinstaller.org/):
