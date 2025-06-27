@@ -175,21 +175,48 @@ def repo(full_name):
         """
         <h2>Repository: {{full_name}}</h2>
         <form method='post'>
-        <ul>
-        {% for pr in open_prs %}
-          <li class='pr-item'>
-            <input type='checkbox' class='pr-checkbox' name='pr' value='{{pr.number}}'>
-            <a href='{{ pr.html_url }}' target='_blank'>#{{ pr.number }}</a>
-            {{ pr.title }}
-          </li>
-        {% endfor %}
-        </ul>
+        <table id='pr-table'>
+          <thead>
+            <tr>
+              <th></th>
+              <th onclick='sortTable(1)'>Number</th>
+              <th onclick='sortTable(2)'>Title</th>
+              <th onclick='sortTable(3)'>Created</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for pr in open_prs %}
+            <tr class='pr-item'>
+              <td><input type='checkbox' class='pr-checkbox' name='pr' value='{{ pr.number }}'></td>
+              <td><a href='{{ pr.html_url }}' target='_blank'>#{{ pr.number }}</a></td>
+              <td>{{ pr.title }}</td>
+              <td data-date='{{ pr.created_at.isoformat() }}'>{{ pr.created_at.strftime('%Y-%m-%d') }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
         <button type='submit' name='action' value='merge'>Merge Selected</button>
         <button type='submit' name='action' value='revert'>Revert Selected</button>
         <button type='submit' name='action' value='close'>Close Selected</button>
         </form>
         <p><a href='{{ url_for("branches", full_name=full_name) }}'>Manage Branches</a></p>
         <script>
+        function sortTable(col) {
+          const table = document.getElementById('pr-table');
+          const tbody = table.tBodies[0];
+          const rows = Array.from(tbody.querySelectorAll('tr'));
+          const asc = table.dataset.sortCol == col && table.dataset.sortDir === 'asc' ? 'desc' : 'asc';
+          rows.sort((a, b) => {
+            const va = a.children[col].getAttribute('data-date') || a.children[col].textContent.trim();
+            const vb = b.children[col].getAttribute('data-date') || b.children[col].textContent.trim();
+            if (va < vb) return asc === 'asc' ? -1 : 1;
+            if (va > vb) return asc === 'asc' ? 1 : -1;
+            return 0;
+          });
+          table.dataset.sortCol = col;
+          table.dataset.sortDir = asc;
+          rows.forEach(r => tbody.appendChild(r));
+        }
         document.addEventListener('DOMContentLoaded', function() {
           const items = Array.from(document.querySelectorAll('.pr-item'));
           const boxes = items.map(item => item.querySelector('.pr-checkbox'));
