@@ -260,12 +260,56 @@ def branches(full_name):
         <form method='post'>
         <ul>
         {% for br in branches %}
-          <li><input type='checkbox' name='branch' value='{{ br.name }}'>{{ br.name }}</li>
+          <li class='branch-item'>
+            <input type='checkbox' class='branch-checkbox' name='branch' value='{{ br.name }}'>{{ br.name }}
+          </li>
         {% endfor %}
         </ul>
         <button type='submit'>Delete Selected</button>
         </form>
         <p><a href='{{ url_for("repo", full_name=full_name) }}'>Back</a></p>
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+          const items = Array.from(document.querySelectorAll('.branch-item'));
+          const boxes = items.map(item => item.querySelector('.branch-checkbox'));
+          let last = null;
+          let dragging = false;
+          let dragState = false;
+
+          items.forEach((item, idx) => {
+            const box = boxes[idx];
+            item.dataset.index = idx;
+            item.addEventListener('mousedown', e => {
+              if (e.target.tagName.toLowerCase() === 'a') return;
+              dragging = true;
+              dragState = !box.checked;
+              box.checked = dragState;
+              last = idx;
+              e.preventDefault();
+            });
+            item.addEventListener('mouseover', e => {
+              if (dragging && e.buttons) {
+                box.checked = dragState;
+              }
+            });
+            item.addEventListener('mouseup', () => { dragging = false; });
+            item.addEventListener('click', e => {
+              if (e.target.tagName.toLowerCase() === 'a') return;
+              if (e.shiftKey && last !== null) {
+                const start = Math.min(last, idx);
+                const end = Math.max(last, idx);
+                for (let i = start; i <= end; i++) {
+                  boxes[i].checked = box.checked;
+                }
+              }
+              if (!e.ctrlKey) {
+                last = idx;
+              }
+            });
+          });
+          document.addEventListener('mouseup', () => { dragging = false; });
+        });
+        </script>
         """,
         full_name=full_name,
         branches=branches,
