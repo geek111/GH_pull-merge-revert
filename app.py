@@ -59,6 +59,10 @@ class BulkMerger(tk.Tk):
         self.token_var = tk.StringVar()
         self.repo_var = tk.StringVar()
         self.pr_vars = []
+        self.pr_checkbuttons = []
+        self.last_click_index = None
+        self.dragging = False
+        self.drag_value = False
         self.cached_repos = []
         self.config_token = ""
         self.status_var = tk.StringVar(value="Ready")
@@ -172,6 +176,32 @@ class BulkMerger(tk.Tk):
     def run_async(self, func):
         threading.Thread(target=func, daemon=True).start()
 
+    def _start_check(self, event, idx):
+        """Handle mouse press on a PR checkbox."""
+        current = self.pr_vars[idx].get()
+        if event.state & 0x0001 and self.last_click_index is not None:
+            new_val = not current
+            start = min(self.last_click_index, idx)
+            end = max(self.last_click_index, idx)
+            for i in range(start, end + 1):
+                self.pr_vars[i].set(new_val)
+            self.last_click_index = idx
+            return "break"
+        self.dragging = True
+        self.drag_value = not current
+        self.pr_vars[idx].set(self.drag_value)
+        self.last_click_index = idx
+        return "break"
+
+    def _enter_check(self, _event, idx):
+        """Set checkbox state during drag selection."""
+        if self.dragging:
+            self.pr_vars[idx].set(self.drag_value)
+
+    def _end_check(self, _event):
+        """Finish drag selection."""
+        self.dragging = False
+
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
             try:
@@ -255,14 +285,20 @@ class BulkMerger(tk.Tk):
                 for widget in self.pr_frame.winfo_children():
                     widget.destroy()
                 self.pr_vars.clear()
+                self.pr_checkbuttons.clear()
                 for i, pr in enumerate(self.prs):
                     var = tk.BooleanVar()
-                    ttk.Checkbutton(
+                    cb = ttk.Checkbutton(
                         self.pr_frame,
                         text=f"#{pr.number}: {pr.title}",
                         variable=var,
-                    ).grid(row=i, column=0, sticky=tk.W)
+                    )
+                    cb.grid(row=i, column=0, sticky=tk.W)
+                    cb.bind("<Button-1>", lambda e, idx=i: self._start_check(e, idx))
+                    cb.bind("<Enter>", lambda e, idx=i: self._enter_check(e, idx))
+                    cb.bind("<ButtonRelease-1>", self._end_check)
                     self.pr_vars.append(var)
+                    self.pr_checkbuttons.append(cb)
                 self.log(f"Loaded {len(self.prs)} pull requests.")
                 self.set_progress(100)
                 self.set_status("Ready")
