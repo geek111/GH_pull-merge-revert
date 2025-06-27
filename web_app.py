@@ -16,7 +16,7 @@ from github.GithubException import GithubException
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
 
-__version__ = "1.4.1"
+__version__ = "1.5.0"
 
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
@@ -175,7 +175,7 @@ def repo(full_name):
         """
         <h2>Repository: {{full_name}}</h2>
         <form method='post'>
-        <ul>
+        <ul id='pr-list'>
         {% for pr in open_prs %}
           <li>
             <input type='checkbox' name='pr' value='{{pr.number}}'>
@@ -188,6 +188,53 @@ def repo(full_name):
         <button type='submit' name='action' value='revert'>Revert Selected</button>
         <button type='submit' name='action' value='close'>Close Selected</button>
         </form>
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const boxes = Array.from(document.querySelectorAll("input[name='pr']"));
+            let lastIndex = null;
+            let dragging = false;
+            let dragState = true;
+
+            function clearOthers(except) {
+                boxes.forEach(b => { if (b !== except) b.checked = false; });
+            }
+
+            function setRange(start, end, value) {
+                const [s, e] = [Math.min(start, end), Math.max(start, end)];
+                for (let i = s; i <= e; i++) {
+                    boxes[i].checked = value;
+                }
+            }
+
+            boxes.forEach((box, idx) => {
+                box.addEventListener('mousedown', e => {
+                    if (e.button !== 0) return;
+                    dragging = true;
+                    dragState = !box.checked;
+                    if (!e.ctrlKey && !e.shiftKey) {
+                        clearOthers(box);
+                    }
+                    box.checked = dragState;
+                    lastIndex = idx;
+                    e.preventDefault();
+                });
+
+                box.addEventListener('mouseover', () => {
+                    if (dragging) box.checked = dragState;
+                });
+
+                box.addEventListener('click', e => {
+                    if (e.shiftKey && lastIndex !== null) {
+                        setRange(lastIndex, idx, true);
+                    } else if (!e.ctrlKey) {
+                        clearOthers(box);
+                    }
+                    lastIndex = idx;
+                });
+            });
+            document.addEventListener('mouseup', () => { dragging = false; });
+        });
+        </script>
         """,
         full_name=full_name,
         open_prs=open_prs,
