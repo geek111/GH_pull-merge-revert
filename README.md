@@ -40,6 +40,19 @@ to avoid fetching them repeatedly.
 The script attempts to merge using the GitHub API and falls back to a local
 `git` merge with a simple conflict strategy if necessary.
 
+## Web Interface
+
+You can run a lightweight Flask application that exposes similar
+functionality via a browser. Launch it with:
+
+```bash
+python web_app.py
+```
+
+Navigate to `http://127.0.0.1:5000/` and provide your GitHub token to list
+repositories, manage pull requests and perform merges or reverts from the
+web UI.
+
 ## Building an executable
 
 To create a Windows `.exe`, you can use [PyInstaller](https://pyinstaller.org/):
