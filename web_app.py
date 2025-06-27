@@ -16,7 +16,7 @@ from github.GithubException import GithubException
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
 
-__version__ = "1.7.0"
+__version__ = "1.7.1"
 
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
@@ -189,7 +189,7 @@ def repo(full_name):
             <tr class='pr-row'>
               <td><input type='checkbox' class='pr-checkbox' name='pr' value='{{pr.number}}'></td>
               <td>{{ pr.title }}</td>
-              <td data-sort='{{ pr.created_at.isoformat() }}'>{{ pr.created_at.strftime('%Y-%m-%d') }}</td>
+              <td data-sort='{{ pr.created_at.isoformat() }}'>{{ pr.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
               <td><a href='{{ pr.html_url }}' target='_blank'>#{{ pr.number }}</a></td>
             </tr>
           {% endfor %}
@@ -297,7 +297,7 @@ def branches(full_name):
             <tr class='branch-row'>
               <td><input type='checkbox' class='branch-checkbox' name='branch' value='{{ br.name }}'></td>
               <td>{{ br.name }}</td>
-              <td data-sort='{{ br.commit.commit.author.date.isoformat() }}'>{{ br.commit.commit.author.date.strftime('%Y-%m-%d') }}</td>
+              <td data-sort='{{ br.commit.commit.author.date.isoformat() }}'>{{ br.commit.commit.author.date.strftime('%Y-%m-%d %H:%M') }}</td>
               <td><a href='https://github.com/{{ full_name }}/tree/{{ br.name }}' target='_blank'>{{ br.name }}</a></td>
             </tr>
           {% endfor %}
