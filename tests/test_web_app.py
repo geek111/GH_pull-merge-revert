@@ -66,5 +66,38 @@ class WebAppTestCase(unittest.TestCase):
                 with c.session_transaction() as sess:
                     self.assertEqual(sess['token'], 'token1234')
 
+    def test_manage_branches_lists_branches(self):
+        with patch('web_app.Github') as MockGithub:
+            g = MockGithub.return_value
+            repo = Mock()
+            repo.full_name = 'owner/repo'
+            branch = Mock()
+            branch.name = 'feature'
+            repo.get_branches.return_value = [branch]
+            g.get_repo.return_value = repo
+            with self.client.session_transaction() as sess:
+                sess['token'] = 'token'
+            resp = self.client.get('/repo/owner/repo/branches')
+            self.assertEqual(resp.status_code, 200)
+            self.assertIn(branch.name.encode(), resp.data)
+
+    def test_delete_branch_calls_github(self):
+        with patch('web_app.Github') as MockGithub:
+            g = MockGithub.return_value
+            repo = Mock()
+            repo.full_name = 'owner/repo'
+            branch = Mock()
+            branch.name = 'old'
+            repo.get_branches.return_value = [branch]
+            ref = Mock()
+            repo.get_git_ref.return_value = ref
+            g.get_repo.return_value = repo
+            with self.client.session_transaction() as sess:
+                sess['token'] = 'token'
+            resp = self.client.post('/repo/owner/repo/branches', data={'branch': 'old'})
+            self.assertEqual(resp.status_code, 200)
+            repo.get_git_ref.assert_called_once_with('heads/old')
+            ref.delete.assert_called_once()
+
 if __name__ == '__main__':
     unittest.main()
