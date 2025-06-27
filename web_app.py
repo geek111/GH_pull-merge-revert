@@ -16,7 +16,7 @@ from github.GithubException import GithubException
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
@@ -175,15 +175,26 @@ def repo(full_name):
         """
         <h2>Repository: {{full_name}}</h2>
         <form method='post'>
-        <ul>
-        {% for pr in open_prs %}
-          <li class='pr-item'>
-            <input type='checkbox' class='pr-checkbox' name='pr' value='{{pr.number}}'>
-            <a href='{{ pr.html_url }}' target='_blank'>#{{ pr.number }}</a>
-            {{ pr.title }}
-          </li>
-        {% endfor %}
-        </ul>
+        <table id='pr-table'>
+          <thead>
+            <tr>
+              <th></th>
+              <th>Title</th>
+              <th id='date-header' data-order='asc'>Date</th>
+              <th>PR</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for pr in open_prs %}
+            <tr class='pr-row'>
+              <td><input type='checkbox' class='pr-checkbox' name='pr' value='{{pr.number}}'></td>
+              <td>{{ pr.title }}</td>
+              <td data-sort='{{ pr.created_at.isoformat() }}'>{{ pr.created_at.strftime('%Y-%m-%d') }}</td>
+              <td><a href='{{ pr.html_url }}' target='_blank'>#{{ pr.number }}</a></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
         <button type='submit' name='action' value='merge'>Merge Selected</button>
         <button type='submit' name='action' value='revert'>Revert Selected</button>
         <button type='submit' name='action' value='close'>Close Selected</button>
@@ -191,16 +202,16 @@ def repo(full_name):
         <p><a href='{{ url_for("branches", full_name=full_name) }}'>Manage Branches</a></p>
         <script>
         document.addEventListener('DOMContentLoaded', function() {
-          const items = Array.from(document.querySelectorAll('.pr-item'));
-          const boxes = items.map(item => item.querySelector('.pr-checkbox'));
+          const rows = Array.from(document.querySelectorAll('.pr-row'));
+          const boxes = rows.map(r => r.querySelector('.pr-checkbox'));
           let last = null;
           let dragging = false;
           let dragState = false;
 
-          items.forEach((item, idx) => {
+          rows.forEach((row, idx) => {
             const box = boxes[idx];
-            item.dataset.index = idx;
-            item.addEventListener('mousedown', e => {
+            row.dataset.index = idx;
+            row.addEventListener('mousedown', e => {
               if (e.target.tagName.toLowerCase() === 'a') return;
               dragging = true;
               dragState = !box.checked;
@@ -208,13 +219,13 @@ def repo(full_name):
               last = idx;
               e.preventDefault();
             });
-            item.addEventListener('mouseover', e => {
+            row.addEventListener('mouseover', e => {
               if (dragging && e.buttons) {
                 box.checked = dragState;
               }
             });
-            item.addEventListener('mouseup', () => { dragging = false; });
-            item.addEventListener('click', e => {
+            row.addEventListener('mouseup', () => { dragging = false; });
+            row.addEventListener('click', e => {
               if (e.target.tagName.toLowerCase() === 'a') return;
               if (e.shiftKey && last !== null) {
                 const start = Math.min(last, idx);
@@ -229,6 +240,20 @@ def repo(full_name):
             });
           });
           document.addEventListener('mouseup', () => { dragging = false; });
+
+          const table = document.getElementById('pr-table');
+          const dateHeader = document.getElementById('date-header');
+          dateHeader.addEventListener('click', () => {
+            const asc = dateHeader.dataset.order !== 'asc';
+            const tbody = table.tBodies[0];
+            const newRows = Array.from(tbody.querySelectorAll('tr')).sort((a, b) => {
+              const da = a.children[2].dataset.sort;
+              const db = b.children[2].dataset.sort;
+              return asc ? new Date(da) - new Date(db) : new Date(db) - new Date(da);
+            });
+            newRows.forEach(r => tbody.appendChild(r));
+            dateHeader.dataset.order = asc ? 'asc' : 'desc';
+          });
         });
         </script>
         """,
