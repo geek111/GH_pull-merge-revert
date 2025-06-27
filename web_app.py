@@ -16,7 +16,7 @@ from github.GithubException import GithubException
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
@@ -188,6 +188,7 @@ def repo(full_name):
         <button type='submit' name='action' value='revert'>Revert Selected</button>
         <button type='submit' name='action' value='close'>Close Selected</button>
         </form>
+        <p><a href='{{ url_for("branches", full_name=full_name) }}'>Manage Branches</a></p>
         <script>
         document.addEventListener('DOMContentLoaded', function() {
           const items = Array.from(document.querySelectorAll('.pr-item'));
@@ -233,6 +234,41 @@ def repo(full_name):
         """,
         full_name=full_name,
         open_prs=open_prs,
+    )
+
+
+@app.route("/repo/<path:full_name>/branches", methods=["GET", "POST"])
+def branches(full_name):
+    token = session.get("token")
+    if not token:
+        return redirect(url_for("index"))
+    g = Github(token, per_page=100)
+    repo = g.get_repo(full_name)
+    if request.method == "POST":
+        names = request.form.getlist("branch")
+        for name in names:
+            try:
+                ref = repo.get_git_ref(f"heads/{name}")
+                ref.delete()
+            except GithubException as e:
+                flash(f"Failed to delete {name}: {e.data}")
+        flash("Action completed")
+    branches = list(repo.get_branches())
+    return render_template_string(
+        """
+        <h2>Branches: {{full_name}}</h2>
+        <form method='post'>
+        <ul>
+        {% for br in branches %}
+          <li><input type='checkbox' name='branch' value='{{ br.name }}'>{{ br.name }}</li>
+        {% endfor %}
+        </ul>
+        <button type='submit'>Delete Selected</button>
+        </form>
+        <p><a href='{{ url_for("repo", full_name=full_name) }}'>Back</a></p>
+        """,
+        full_name=full_name,
+        branches=branches,
     )
 
 
