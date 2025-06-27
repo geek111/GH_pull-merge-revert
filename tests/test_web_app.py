@@ -1,4 +1,5 @@
 import unittest
+import datetime
 from unittest.mock import patch, Mock
 from web_app import app
 
@@ -37,6 +38,37 @@ class WebAppTestCase(unittest.TestCase):
             resp = self.client.get('/repo/owner/repo')
             self.assertEqual(resp.status_code, 200)
             self.assertIn(pr.html_url.encode(), resp.data)
+
+    def test_repo_page_has_manage_branches_link(self):
+        with patch('web_app.Github') as MockGithub:
+            g = MockGithub.return_value
+            repo = Mock()
+            repo.full_name = 'owner/repo'
+            repo.get_pulls.return_value = []
+            g.get_repo.return_value = repo
+            with self.client.session_transaction() as sess:
+                sess['token'] = 'token'
+            resp = self.client.get('/repo/owner/repo')
+            self.assertEqual(resp.status_code, 200)
+            self.assertIn(b'Manage Branches', resp.data)
+
+    def test_branch_manager_lists_branches(self):
+        with patch('web_app.Github') as MockGithub:
+            g = MockGithub.return_value
+            repo = Mock()
+            repo.full_name = 'owner/repo'
+            branch = Mock()
+            branch.name = 'feature'
+            commit = Mock()
+            commit.commit.author.date = datetime.datetime(2023, 1, 1)
+            branch.commit = commit
+            repo.get_branches.return_value = [branch]
+            g.get_repo.return_value = repo
+            with self.client.session_transaction() as sess:
+                sess['token'] = 'token'
+            resp = self.client.get('/repo/owner/repo/branches')
+            self.assertEqual(resp.status_code, 200)
+            self.assertIn(b'feature', resp.data)
 
     def test_index_page_loads(self):
         resp = self.client.get('/')

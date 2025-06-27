@@ -16,7 +16,7 @@ from github.GithubException import GithubException
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
@@ -174,6 +174,7 @@ def repo(full_name):
     return render_template_string(
         """
         <h2>Repository: {{full_name}}</h2>
+        <p><a href='{{ url_for("branches", full_name=full_name) }}'>Manage Branches</a></p>
         <form method='post'>
         <ul>
         {% for pr in open_prs %}
@@ -233,6 +234,48 @@ def repo(full_name):
         """,
         full_name=full_name,
         open_prs=open_prs,
+    )
+
+
+@app.route("/repo/<path:full_name>/branches", methods=["GET", "POST"])
+def branches(full_name):
+    token = session.get("token")
+    if not token:
+        return redirect(url_for("index"))
+    g = Github(token, per_page=100)
+    repo = g.get_repo(full_name)
+    if request.method == "POST":
+        names = request.form.getlist("branch")
+        for name in names:
+            try:
+                ref = repo.get_git_ref(f"heads/{name}")
+                ref.delete()
+            except GithubException as e:
+                flash(f"Failed to delete {name}: {e.data}")
+        flash("Deletion completed")
+        return redirect(url_for("branches", full_name=full_name))
+    branches = []
+    for br in repo.get_branches():
+        dt = br.commit.commit.author.date
+        branches.append((br.name, dt))
+    branches.sort(key=lambda x: x[1], reverse=True)
+    return render_template_string(
+        """
+        <h2>Branches for {{full_name}}</h2>
+        <form method='post'>
+        <ul>
+        {% for name, dt in branches %}
+          <li>
+            <input type='checkbox' name='branch' value='{{name}}'> {{name}} - {{ dt.strftime('%Y-%m-%d') }}
+          </li>
+        {% endfor %}
+        </ul>
+        <button type='submit'>Delete Selected</button>
+        </form>
+        <p><a href='{{ url_for("repo", full_name=full_name) }}'>Back</a></p>
+        """,
+        full_name=full_name,
+        branches=branches,
     )
 
 
