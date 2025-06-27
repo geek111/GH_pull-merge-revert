@@ -8,7 +8,7 @@ from github.GithubException import GithubException
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"
 
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
@@ -79,7 +79,10 @@ def repos():
         <h2>Select Repository</h2>
         <ul>
         {% for repo in repos %}
-          <li><a href='{{ url_for("repo", full_name=repo.full_name) }}'>{{ repo.full_name }}</a></li>
+          <li>
+            <a href='{{ url_for("repo", full_name=repo.full_name) }}'>{{ repo.full_name }}</a>
+            (<a href='{{ repo.html_url }}' target='_blank'>GitHub</a>)
+          </li>
         {% endfor %}
         </ul>
         """,
@@ -121,11 +124,14 @@ def repo(full_name):
     open_prs = list(repo.get_pulls(state="open", sort="created"))
     return render_template_string(
         """
-        <h2>Repository: {{full_name}}</h2>
+        <h2>Repository: <a href='{{ repo.html_url }}' target='_blank'>{{full_name}}</a></h2>
         <form method='post'>
         <ul>
         {% for pr in open_prs %}
-          <li><input type='checkbox' name='pr' value='{{pr.number}}'>#{{pr.number}} {{pr.title}}</li>
+          <li>
+            <input type='checkbox' name='pr' value='{{pr.number}}'>#{{pr.number}} {{pr.title}}
+            (<a href='{{ pr.html_url }}' target='_blank'>GitHub</a>)
+          </li>
         {% endfor %}
         </ul>
         <button type='submit' name='action' value='merge'>Merge Selected</button>
@@ -135,6 +141,7 @@ def repo(full_name):
         """,
         full_name=full_name,
         open_prs=open_prs,
+        repo=repo,
     )
 
 
