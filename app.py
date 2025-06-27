@@ -418,6 +418,9 @@ class BranchManager(tk.Toplevel):
         self.branch_statuses = {}
         self.sort_column = "date"
         self.sort_reverse = True
+        self.dragging_check = False
+        self.drag_check_value = False
+        self.dragged_items = set()
         self.create_widgets()
         self.update_idletasks()
         self.geometry(f"{self.winfo_reqwidth()}x{self.winfo_reqheight()}")
@@ -525,6 +528,11 @@ class BranchManager(tk.Toplevel):
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.tree.configure(yscrollcommand=scroll.set)
 
+        self.tree.bind("<Button-1>", self.on_tree_click)
+        self.tree.bind("<B1-Motion>", self.on_tree_drag)
+        self.tree.bind("<ButtonRelease-1>", self.on_tree_release)
+        self.tree.bind("<space>", self.toggle_checkboxes)
+
         self.tree.bind("<Button-3>", self.show_context_menu)
 
         self.menu = tk.Menu(self, tearoff=0)
@@ -556,6 +564,54 @@ class BranchManager(tk.Toplevel):
     def show_context_menu(self, event):
         self.tree.focus_set()
         self.menu.tk_popup(event.x_root, event.y_root)
+
+    def _set_checked(self, iid, checked):
+        var = self.branch_vars.get(iid)
+        if var is None:
+            var = tk.BooleanVar()
+            self.branch_vars[iid] = var
+        var.set(checked)
+        self.tree.set(iid, "selected", "☑" if checked else "☐")
+
+    def on_tree_click(self, event):
+        if self.tree.identify_column(event.x) != "#1":
+            return
+        iid = self.tree.identify_row(event.y)
+        if not iid:
+            return
+        var = self.branch_vars.get(iid)
+        new_state = not var.get() if var else True
+        selected = self.tree.selection()
+        targets = selected if iid in selected and selected else [iid]
+        for t in targets:
+            self._set_checked(t, new_state)
+        self.dragging_check = True
+        self.drag_check_value = new_state
+        self.dragged_items = set(targets)
+        return "break"
+
+    def on_tree_drag(self, event):
+        if not self.dragging_check:
+            return
+        iid = self.tree.identify_row(event.y)
+        if iid and iid not in self.dragged_items:
+            self._set_checked(iid, self.drag_check_value)
+            self.dragged_items.add(iid)
+
+    def on_tree_release(self, event):
+        self.dragging_check = False
+        self.dragged_items.clear()
+
+    def toggle_checkboxes(self, event):
+        selected = self.tree.selection()
+        if not selected:
+            return "break"
+        first = selected[0]
+        var = self.branch_vars.get(first)
+        new_state = not var.get() if var else True
+        for iid in selected:
+            self._set_checked(iid, new_state)
+        return "break"
 
     def refresh_branches(self):
         self.set_status("Refreshing branches...")
