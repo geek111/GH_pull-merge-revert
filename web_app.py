@@ -8,7 +8,9 @@ from github.GithubException import GithubException
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
 
-__version__ = "1.4.1"
+__version__ = "1.5.0"
+
+CONFIG_FILE = "config.json"
 
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
@@ -46,8 +48,28 @@ def attempt_conflict_resolution(repo_url: str, base_branch: str, pr_branch: str)
 
 @app.route("/", methods=["GET", "POST"])
 def index():
+    if "token" not in session:
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                if "token" in cfg:
+                    session["token"] = cfg["token"]
+            except Exception:
+                pass
     if request.method == "POST":
-        session["token"] = request.form["token"].strip()
+        token = request.form["token"].strip()
+        session["token"] = token
+        cfg = {}
+        if os.path.exists(CONFIG_FILE):
+            try:
+                with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+            except Exception:
+                cfg = {}
+        cfg["token"] = token
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f)
         return redirect(url_for("repos"))
     token = session.get("token")
     return render_template_string(
