@@ -43,5 +43,11 @@ class WebAppTestCase(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn(b'GitHub Bulk Merger - Web', resp.data)
 
+    def test_token_saved_when_remember_checked(self):
+        with patch('web_app.save_token') as mock_save:
+            resp = self.client.post('/', data={'token': 'abc', 'remember': 'on'})
+            self.assertEqual(resp.status_code, 302)
+            mock_save.assert_called_once_with('abc')
+
 if __name__ == '__main__':
     unittest.main()
