@@ -49,6 +49,7 @@ python web_app.py
 ```
 
 Open `http://127.0.0.1:5000/` in your browser and follow the instructions to merge or revert pull requests using the browser.
+Repository names and pull request titles link directly to their GitHub pages for quick access.
 
 ## Building an executable
 

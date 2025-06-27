@@ -79,7 +79,10 @@ def repos():
         <h2>Select Repository</h2>
         <ul>
         {% for repo in repos %}
-          <li><a href='{{ url_for("repo", full_name=repo.full_name) }}'>{{ repo.full_name }}</a></li>
+          <li>
+            <a href='{{ url_for("repo", full_name=repo.full_name) }}'>{{ repo.full_name }}</a>
+            (<a href='{{ repo.html_url }}' target='_blank'>GitHub</a>)
+          </li>
         {% endfor %}
         </ul>
         """,
@@ -125,7 +128,10 @@ def repo(full_name):
         <form method='post'>
         <ul>
         {% for pr in open_prs %}
-          <li><input type='checkbox' name='pr' value='{{pr.number}}'>#{{pr.number}} {{pr.title}}</li>
+          <li>
+            <input type='checkbox' name='pr' value='{{ pr.number }}'>
+            <a href='{{ pr.html_url }}' target='_blank'>#{{ pr.number }} {{ pr.title }}</a>
+          </li>
         {% endfor %}
         </ul>
         <button type='submit' name='action' value='merge'>Merge Selected</button>
