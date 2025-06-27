@@ -1,4 +1,6 @@
 import unittest
+import os
+import json
 from unittest.mock import patch, Mock
 from web_app import app
 
@@ -42,6 +44,18 @@ class WebAppTestCase(unittest.TestCase):
         resp = self.client.get('/')
         self.assertEqual(resp.status_code, 200)
         self.assertIn(b'GitHub Bulk Merger - Web', resp.data)
+
+    def test_token_saved_to_config(self):
+        config_path = 'config.json'
+        if os.path.exists(config_path):
+            os.remove(config_path)
+        resp = self.client.post('/', data={'token': 'abc'}, follow_redirects=False)
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(os.path.exists(config_path))
+        with open(config_path, 'r', encoding='utf-8') as f:
+            cfg = json.load(f)
+        self.assertEqual(cfg.get('token'), 'abc')
+        os.remove(config_path)
 
 if __name__ == '__main__':
     unittest.main()

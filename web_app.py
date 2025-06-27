@@ -8,10 +8,28 @@ from github.GithubException import GithubException
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
 
-__version__ = "1.4.1"
+__version__ = "1.5.0"
+
+CONFIG_FILE = "config.json"
 
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
+
+
+def load_token() -> str:
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data.get("token", "")
+        except Exception:
+            return ""
+    return ""
+
+
+def save_token(token: str) -> None:
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump({"token": token}, f)
 
 
 def get_local_repo(repo_url: str) -> str:
@@ -47,9 +65,15 @@ def attempt_conflict_resolution(repo_url: str, base_branch: str, pr_branch: str)
 @app.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
-        session["token"] = request.form["token"].strip()
+        token = request.form["token"].strip()
+        session["token"] = token
+        save_token(token)
         return redirect(url_for("repos"))
     token = session.get("token")
+    if not token:
+        token = load_token()
+        if token:
+            session["token"] = token
     return render_template_string(
         """
         <h2>GitHub Bulk Merger - Web</h2>
