@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>{{ repo_name }}</h2>
+<form method="post" action="/action">
+  <input type="hidden" name="repo" value="{{ repo_name }}">
+  <table class="table">
+    <thead>
+      <tr><th scope="col"></th><th scope="col">PR</th><th scope="col">Title</th></tr>
+    </thead>
+    <tbody>
+    {% for pr in prs %}
+      <tr>
+        <td><input type="checkbox" name="pr" value="{{ pr.number }}"></td>
+        <td><a href="{{ pr.html_url }}" target="_blank">#{{ pr.number }}</a></td>
+        <td>{{ pr.title }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <div class="mb-3">
+    <select class="form-select" name="operation" required>
+      <option value="merge">Merge Selected</option>
+      <option value="revert">Revert Selected</option>
+      <option value="close">Close Selected</option>
+    </select>
+  </div>
+  <button type="submit" class="btn btn-primary">Run</button>
+</form>
+{% endblock %}

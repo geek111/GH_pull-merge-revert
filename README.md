@@ -50,3 +50,13 @@ pyinstaller --onefile app.py
 ```
 
 The resulting executable will be placed in the `dist` folder.
+
+## Web Version
+
+A simple Flask application provides equivalent functionality via a browser. After installing dependencies run:
+
+```bash
+python web_app.py
+```
+
+Open `http://localhost:5000` and follow the prompts to load repositories, list pull requests and perform merge, revert or close operations.

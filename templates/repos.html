@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<form method="post" action="/prs">
+  <div class="mb-3">
+    <label for="repo" class="form-label">Repository</label>
+    <select class="form-select" id="repo" name="repo" required>
+      {% for repo in repos %}
+      <option value="{{ repo }}">{{ repo }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <button type="submit" class="btn btn-primary">Load PRs</button>
+</form>
+{% endblock %}

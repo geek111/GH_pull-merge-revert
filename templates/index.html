@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<form method="post" action="/repos">
+  <div class="mb-3">
+    <label for="token" class="form-label">GitHub Token</label>
+    <input type="password" class="form-control" id="token" name="token" required>
+  </div>
+  <button type="submit" class="btn btn-primary">Load Repos</button>
+</form>
+{% endblock %}
