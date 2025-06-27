@@ -50,6 +50,7 @@ python web_app.py
 
 Open `http://127.0.0.1:5000/` in your browser and follow the instructions to merge or revert pull requests using the browser.
 The landing page now includes a **Remember token** option that persists tokens in `config.json`. Saved tokens can be selected from a drop-down list.
+Each repository page provides a **Manage Branches** link that opens a simple branch manager. It lists repository branches and allows deleting the selected ones.
 
 ## Building an executable
 
