@@ -16,7 +16,7 @@ from github.GithubException import GithubException
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
 
-__version__ = "1.7.0"
+__version__ = "1.8.0"
 
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
@@ -283,19 +283,25 @@ def branches(full_name):
         """
         <h2>Branches: {{full_name}}</h2>
         <form method='post'>
-        <ul>
-        {% for br in branches %}
-          <li class='branch-item'>
-            <input type='checkbox' class='branch-checkbox' name='branch' value='{{ br.name }}'>{{ br.name }}
-          </li>
-        {% endfor %}
-        </ul>
+        <table id='branch-table'>
+          <thead>
+            <tr><th></th><th>Name</th></tr>
+          </thead>
+          <tbody>
+          {% for br in branches %}
+            <tr class='branch-row'>
+              <td><input type='checkbox' class='branch-checkbox' name='branch' value='{{ br.name }}'></td>
+              <td>{{ br.name }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
         <button type='submit'>Delete Selected</button>
         </form>
         <p><a href='{{ url_for("repo", full_name=full_name) }}'>Back</a></p>
         <script>
         document.addEventListener('DOMContentLoaded', function() {
-          const items = Array.from(document.querySelectorAll('.branch-item'));
+          const items = Array.from(document.querySelectorAll('.branch-row'));
           const boxes = items.map(item => item.querySelector('.branch-checkbox'));
           let last = null;
           let dragging = false;

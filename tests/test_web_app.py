@@ -79,6 +79,7 @@ class WebAppTestCase(unittest.TestCase):
                 sess['token'] = 'token'
             resp = self.client.get('/repo/owner/repo/branches')
             self.assertEqual(resp.status_code, 200)
+            self.assertIn(b"id='branch-table'", resp.data)
             self.assertIn(branch.name.encode(), resp.data)
 
     def test_delete_branch_calls_github(self):
