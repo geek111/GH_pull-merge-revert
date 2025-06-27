@@ -177,7 +177,7 @@ def repo(full_name):
         <form method='post'>
         <ul>
         {% for pr in open_prs %}
-          <li>
+          <li class='pr-item'>
             <input type='checkbox' class='pr-checkbox' name='pr' value='{{pr.number}}'>
             <a href='{{ pr.html_url }}' target='_blank'>#{{ pr.number }}</a>
             {{ pr.title }}
@@ -190,27 +190,31 @@ def repo(full_name):
         </form>
         <script>
         document.addEventListener('DOMContentLoaded', function() {
-          const boxes = Array.from(document.querySelectorAll('.pr-checkbox'));
+          const items = Array.from(document.querySelectorAll('.pr-item'));
+          const boxes = items.map(item => item.querySelector('.pr-checkbox'));
           let last = null;
           let dragging = false;
           let dragState = false;
 
-          boxes.forEach((box, idx) => {
-            box.dataset.index = idx;
-            box.addEventListener('mousedown', e => {
+          items.forEach((item, idx) => {
+            const box = boxes[idx];
+            item.dataset.index = idx;
+            item.addEventListener('mousedown', e => {
+              if (e.target.tagName.toLowerCase() === 'a') return;
               dragging = true;
               dragState = !box.checked;
               box.checked = dragState;
               last = idx;
               e.preventDefault();
             });
-            box.addEventListener('mouseover', () => {
-              if (dragging) {
+            item.addEventListener('mouseover', e => {
+              if (dragging && e.buttons) {
                 box.checked = dragState;
               }
             });
-            box.addEventListener('mouseup', () => { dragging = false; });
-            box.addEventListener('click', e => {
+            item.addEventListener('mouseup', () => { dragging = false; });
+            item.addEventListener('click', e => {
+              if (e.target.tagName.toLowerCase() === 'a') return;
               if (e.shiftKey && last !== null) {
                 const start = Math.min(last, idx);
                 const end = Math.max(last, idx);
