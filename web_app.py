@@ -283,28 +283,41 @@ def branches(full_name):
         """
         <h2>Branches: {{full_name}}</h2>
         <form method='post'>
-        <ul>
-        {% for br in branches %}
-          <li class='branch-item'>
-            <input type='checkbox' class='branch-checkbox' name='branch' value='{{ br.name }}'>{{ br.name }}
-          </li>
-        {% endfor %}
-        </ul>
+        <table id='branch-table'>
+          <thead>
+            <tr>
+              <th></th>
+              <th>Name</th>
+              <th id='date-header' data-order='asc'>Date</th>
+              <th>Branch</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for br in branches %}
+            <tr class='branch-row'>
+              <td><input type='checkbox' class='branch-checkbox' name='branch' value='{{ br.name }}'></td>
+              <td>{{ br.name }}</td>
+              <td data-sort='{{ br.commit.commit.author.date.isoformat() }}'>{{ br.commit.commit.author.date.strftime('%Y-%m-%d') }}</td>
+              <td><a href='https://github.com/{{ full_name }}/tree/{{ br.name }}' target='_blank'>{{ br.name }}</a></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
         <button type='submit'>Delete Selected</button>
         </form>
         <p><a href='{{ url_for("repo", full_name=full_name) }}'>Back</a></p>
         <script>
         document.addEventListener('DOMContentLoaded', function() {
-          const items = Array.from(document.querySelectorAll('.branch-item'));
-          const boxes = items.map(item => item.querySelector('.branch-checkbox'));
+          const rows = Array.from(document.querySelectorAll('.branch-row'));
+          const boxes = rows.map(r => r.querySelector('.branch-checkbox'));
           let last = null;
           let dragging = false;
           let dragState = false;
 
-          items.forEach((item, idx) => {
+          rows.forEach((row, idx) => {
             const box = boxes[idx];
-            item.dataset.index = idx;
-            item.addEventListener('mousedown', e => {
+            row.dataset.index = idx;
+            row.addEventListener('mousedown', e => {
               if (e.target.tagName.toLowerCase() === 'a') return;
               dragging = true;
               dragState = !box.checked;
@@ -312,13 +325,13 @@ def branches(full_name):
               last = idx;
               e.preventDefault();
             });
-            item.addEventListener('mouseover', e => {
+            row.addEventListener('mouseover', e => {
               if (dragging && e.buttons) {
                 box.checked = dragState;
               }
             });
-            item.addEventListener('mouseup', () => { dragging = false; });
-            item.addEventListener('click', e => {
+            row.addEventListener('mouseup', () => { dragging = false; });
+            row.addEventListener('click', e => {
               if (e.target.tagName.toLowerCase() === 'a') return;
               if (e.shiftKey && last !== null) {
                 const start = Math.min(last, idx);
@@ -333,6 +346,20 @@ def branches(full_name):
             });
           });
           document.addEventListener('mouseup', () => { dragging = false; });
+
+          const table = document.getElementById('branch-table');
+          const dateHeader = document.getElementById('date-header');
+          dateHeader.addEventListener('click', () => {
+            const asc = dateHeader.dataset.order !== 'asc';
+            const tbody = table.tBodies[0];
+            const newRows = Array.from(tbody.querySelectorAll('tr')).sort((a, b) => {
+              const da = a.children[2].dataset.sort;
+              const db = b.children[2].dataset.sort;
+              return asc ? new Date(da) - new Date(db) : new Date(db) - new Date(da);
+            });
+            newRows.forEach(r => tbody.appendChild(r));
+            dateHeader.dataset.order = asc ? 'asc' : 'desc';
+          });
         });
         </script>
         """,
