@@ -16,7 +16,7 @@ from github.GithubException import GithubException
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
 
-__version__ = "1.6.0"
+__version__ = "1.6.1"
 
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
@@ -253,23 +253,65 @@ def branches(full_name):
             except GithubException as e:
                 flash(f"Failed to delete {name}: {e.data}")
         flash("Action completed")
-    branches = list(repo.get_branches())
+    branches = []
+    for br in repo.get_branches():
+        try:
+            date = br.commit.commit.committer.date
+        except Exception:
+            date = ""
+        branches.append({"name": br.name, "date": date})
     return render_template_string(
         """
         <h2>Branches: {{full_name}}</h2>
         <form method='post'>
-        <ul>
-        {% for br in branches %}
-          <li class='branch-item'>
-            <input type='checkbox' class='branch-checkbox' name='branch' value='{{ br.name }}'>{{ br.name }}
-          </li>
-        {% endfor %}
-        </ul>
+        <table id='branches-table'>
+          <thead>
+            <tr>
+              <th data-sort='name'>Name</th>
+              <th data-sort='date'>Date</th>
+              <th>Select</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for br in branches %}
+            <tr class='branch-item'>
+              <td class='branch-name'>{{ br.name }}</td>
+              <td class='branch-date'>{{ br.date }}</td>
+              <td><input type='checkbox' class='branch-checkbox' name='branch' value='{{ br.name }}'></td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
         <button type='submit'>Delete Selected</button>
         </form>
         <p><a href='{{ url_for("repo", full_name=full_name) }}'>Back</a></p>
         <script>
         document.addEventListener('DOMContentLoaded', function() {
+          const table = document.getElementById('branches-table');
+          const headers = table.querySelectorAll('th[data-sort]');
+          const getValue = (row, field) => {
+            if (field === 'name') return row.querySelector('.branch-name').textContent.trim();
+            return new Date(row.querySelector('.branch-date').textContent);
+          };
+          headers.forEach(th => {
+            th.addEventListener('click', () => {
+              const field = th.dataset.sort;
+              const asc = !th.classList.contains('asc');
+              headers.forEach(h => h.classList.remove('asc', 'desc'));
+              th.classList.add(asc ? 'asc' : 'desc');
+              const rows = Array.from(table.querySelectorAll('tbody tr'));
+              rows.sort((a, b) => {
+                const aVal = getValue(a, field);
+                const bVal = getValue(b, field);
+                if (aVal < bVal) return asc ? -1 : 1;
+                if (aVal > bVal) return asc ? 1 : -1;
+                return 0;
+              });
+              const tbody = table.querySelector('tbody');
+              tbody.innerHTML = '';
+              rows.forEach(r => tbody.appendChild(r));
+            });
+          });
           const items = Array.from(document.querySelectorAll('.branch-item'));
           const boxes = items.map(item => item.querySelector('.branch-checkbox'));
           let last = null;
