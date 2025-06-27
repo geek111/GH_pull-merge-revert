@@ -43,5 +43,28 @@ class WebAppTestCase(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn(b'GitHub Bulk Merger - Web', resp.data)
 
+    def test_token_saved_when_remember_checked(self):
+        with patch('web_app.save_token') as mock_save:
+            resp = self.client.post('/', data={'token': 'abc', 'remember': 'on'})
+            self.assertEqual(resp.status_code, 302)
+            mock_save.assert_called_once_with('abc')
+
+    def test_saved_tokens_displayed_on_index(self):
+        tokens = ['1234567890', 'abcdefabcdef']
+        with patch('web_app.load_config', return_value={'tokens': tokens}):
+            resp = self.client.get('/')
+            self.assertEqual(resp.status_code, 200)
+            self.assertIn(b'-- Select saved token --', resp.data)
+            self.assertIn(b'1234...7890', resp.data)
+            self.assertIn(b'abcd...cdef', resp.data)
+
+    def test_selecting_saved_token_sets_session(self):
+        with self.client as c:
+            with patch('web_app.load_config', return_value={'tokens': ['token1234']}):
+                resp = c.post('/', data={'saved_token': 'token1234'})
+                self.assertEqual(resp.status_code, 302)
+                with c.session_transaction() as sess:
+                    self.assertEqual(sess['token'], 'token1234')
+
 if __name__ == '__main__':
     unittest.main()

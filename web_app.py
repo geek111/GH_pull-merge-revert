@@ -1,7 +1,15 @@
 import os
 import subprocess
 import json
-from flask import Flask, render_template_string, request, redirect, url_for, session, flash
+from flask import (
+    Flask,
+    render_template_string,
+    request,
+    redirect,
+    url_for,
+    session,
+    flash,
+)
 from github import Github
 from github.GithubException import GithubException
 
@@ -12,6 +20,27 @@ __version__ = "1.4.1"
 
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
+CONFIG_FILE = "config.json"
+
+
+def load_config() -> dict:
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def save_token(token: str) -> None:
+    cfg = load_config()
+    tokens = cfg.get("tokens", [])
+    if token not in tokens:
+        tokens.append(token)
+    cfg["tokens"] = tokens
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(cfg, f)
 
 
 def get_local_repo(repo_url: str) -> str:
@@ -46,20 +75,40 @@ def attempt_conflict_resolution(repo_url: str, base_branch: str, pr_branch: str)
 
 @app.route("/", methods=["GET", "POST"])
 def index():
+    cfg = load_config()
+    saved_tokens = cfg.get("tokens", [])
     if request.method == "POST":
-        session["token"] = request.form["token"].strip()
-        return redirect(url_for("repos"))
+        token = request.form.get("token") or request.form.get("saved_token")
+        if token:
+            token = token.strip()
+            session["token"] = token
+            if request.form.get("remember"):
+                save_token(token)
+            return redirect(url_for("repos"))
     token = session.get("token")
+    if token:
+        session["token"] = token
     return render_template_string(
         """
         <h2>GitHub Bulk Merger - Web</h2>
         {% if token %}<p>Token configured.</p>{% endif %}
         <form method='post'>
-            <input name='token' type='password' placeholder='GitHub token' required>
+            {% if saved_tokens %}
+            <select name='saved_token'>
+              <option value=''>-- Select saved token --</option>
+              {% for t in saved_tokens %}
+                <option value='{{ t }}'>{{ t[:4] + "..." + t[-4:] }}</option>
+              {% endfor %}
+            </select>
+            <p>or</p>
+            {% endif %}
+            <input name='token' type='password' placeholder='GitHub token'>
+            <label><input type='checkbox' name='remember'> Remember token</label>
             <button type='submit'>Load Repositories</button>
         </form>
         """,
         token=token,
+        saved_tokens=saved_tokens,
     )
 
 
