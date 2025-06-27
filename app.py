@@ -26,7 +26,7 @@ def blend_colors(widget, fg, bg, alpha=0.5):
 CONFIG_FILE = "config.json"
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 
 
 def load_branch_cache():
