@@ -16,7 +16,7 @@ from github.GithubException import GithubException
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
 
-__version__ = "1.4.1"
+__version__ = "1.5.0"
 
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
@@ -178,7 +178,7 @@ def repo(full_name):
         <ul>
         {% for pr in open_prs %}
           <li>
-            <input type='checkbox' name='pr' value='{{pr.number}}'>
+            <input type='checkbox' class='pr-checkbox' name='pr' value='{{pr.number}}'>
             <a href='{{ pr.html_url }}' target='_blank'>#{{ pr.number }}</a>
             {{ pr.title }}
           </li>
@@ -188,6 +188,44 @@ def repo(full_name):
         <button type='submit' name='action' value='revert'>Revert Selected</button>
         <button type='submit' name='action' value='close'>Close Selected</button>
         </form>
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+          const boxes = Array.from(document.querySelectorAll('.pr-checkbox'));
+          let last = null;
+          let dragging = false;
+          let dragState = false;
+
+          boxes.forEach((box, idx) => {
+            box.dataset.index = idx;
+            box.addEventListener('mousedown', e => {
+              dragging = true;
+              dragState = !box.checked;
+              box.checked = dragState;
+              last = idx;
+              e.preventDefault();
+            });
+            box.addEventListener('mouseover', () => {
+              if (dragging) {
+                box.checked = dragState;
+              }
+            });
+            box.addEventListener('mouseup', () => { dragging = false; });
+            box.addEventListener('click', e => {
+              if (e.shiftKey && last !== null) {
+                const start = Math.min(last, idx);
+                const end = Math.max(last, idx);
+                for (let i = start; i <= end; i++) {
+                  boxes[i].checked = box.checked;
+                }
+              }
+              if (!e.ctrlKey) {
+                last = idx;
+              }
+            });
+          });
+          document.addEventListener('mouseup', () => { dragging = false; });
+        });
+        </script>
         """,
         full_name=full_name,
         open_prs=open_prs,
