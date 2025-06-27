@@ -43,5 +43,12 @@ class WebAppTestCase(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn(b'GitHub Bulk Merger - Web', resp.data)
 
+    def test_token_saved_to_config(self):
+        with patch('web_app.CONFIG_FILE', 'tmp_config.json'):
+            with patch('web_app.save_config') as mock_save:
+                resp = self.client.post('/', data={'token': 't'}, follow_redirects=False)
+                self.assertEqual(resp.status_code, 302)
+                mock_save.assert_called_with('t')
+
 if __name__ == '__main__':
     unittest.main()
