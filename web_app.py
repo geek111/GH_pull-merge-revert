@@ -253,18 +253,39 @@ def branches(full_name):
             except GithubException as e:
                 flash(f"Failed to delete {name}: {e.data}")
         flash("Action completed")
-    branches = list(repo.get_branches())
+    raw_branches = list(repo.get_branches())
+    branches = []
+    for br in raw_branches:
+        date_str = ""
+        try:
+            dt = br.commit.commit.author.date
+            date_str = dt.isoformat() if hasattr(dt, "isoformat") else str(dt)
+        except Exception:
+            date_str = ""
+        branches.append({"name": br.name, "date": date_str})
+
     return render_template_string(
         """
         <h2>Branches: {{full_name}}</h2>
         <form method='post'>
-        <ul>
-        {% for br in branches %}
-          <li class='branch-item'>
-            <input type='checkbox' class='branch-checkbox' name='branch' value='{{ br.name }}'>{{ br.name }}
-          </li>
-        {% endfor %}
-        </ul>
+        <table id='branch-table'>
+          <thead>
+            <tr>
+              <th></th>
+              <th>Name</th>
+              <th id='date-header'>Date</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for br in branches %}
+            <tr class='branch-item'>
+              <td><input type='checkbox' class='branch-checkbox' name='branch' value='{{ br.name }}'></td>
+              <td>{{ br.name }}</td>
+              <td class='date' data-sort-value='{{ br.date }}'>{{ br.date }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
         <button type='submit'>Delete Selected</button>
         </form>
         <p><a href='{{ url_for("repo", full_name=full_name) }}'>Back</a></p>
@@ -308,6 +329,20 @@ def branches(full_name):
             });
           });
           document.addEventListener('mouseup', () => { dragging = false; });
+
+          const dateHeader = document.getElementById('date-header');
+          let asc = true;
+          dateHeader.addEventListener('click', () => {
+            const tbody = document.querySelector('#branch-table tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            rows.sort((a, b) => {
+              const av = a.querySelector('td.date').dataset.sortValue;
+              const bv = b.querySelector('td.date').dataset.sortValue;
+              return asc ? new Date(av) - new Date(bv) : new Date(bv) - new Date(av);
+            });
+            asc = !asc;
+            rows.forEach(r => tbody.appendChild(r));
+          });
         });
         </script>
         """,
