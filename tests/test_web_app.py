@@ -30,6 +30,8 @@ class WebAppTestCase(unittest.TestCase):
             pr.number = 1
             pr.title = 'Test'
             pr.html_url = 'https://github.com/owner/repo/pull/1'
+            pr.state = 'open'
+            pr.merged = False
             repo.get_pulls.return_value = [pr]
             g.get_repo.return_value = repo
             with self.client.session_transaction() as sess:
@@ -37,6 +39,32 @@ class WebAppTestCase(unittest.TestCase):
             resp = self.client.get('/repo/owner/repo')
             self.assertEqual(resp.status_code, 200)
             self.assertIn(pr.html_url.encode(), resp.data)
+
+    def test_pr_list_displays_status(self):
+        with patch('web_app.Github') as MockGithub:
+            g = MockGithub.return_value
+            repo = Mock()
+            repo.full_name = 'owner/repo'
+            pr1 = Mock()
+            pr1.number = 1
+            pr1.title = 'Open'
+            pr1.html_url = 'https://github.com/owner/repo/pull/1'
+            pr1.state = 'open'
+            pr1.merged = False
+            pr2 = Mock()
+            pr2.number = 2
+            pr2.title = 'Closed'
+            pr2.html_url = 'https://github.com/owner/repo/pull/2'
+            pr2.state = 'closed'
+            pr2.merged = False
+            repo.get_pulls.return_value = [pr1, pr2]
+            g.get_repo.return_value = repo
+            with self.client.session_transaction() as sess:
+                sess['token'] = 'token'
+            resp = self.client.get('/repo/owner/repo')
+            self.assertEqual(resp.status_code, 200)
+            self.assertIn(b'<td>open</td>', resp.data)
+            self.assertIn(b'<td>closed</td>', resp.data)
 
     def test_index_page_loads(self):
         resp = self.client.get('/')
