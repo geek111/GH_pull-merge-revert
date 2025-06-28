@@ -22,6 +22,73 @@ CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
 CONFIG_FILE = "config.json"
 
+# Responsive navigation bar shared across pages
+NAV_TEMPLATE = """
+<style>
+.navbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  background-color: #333;
+  padding: 0.5rem;
+}
+.navbar a {
+  color: #fff;
+  margin-right: 1rem;
+  text-decoration: none;
+}
+.nav-toggle {
+  display: none;
+  margin-left: auto;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #fff;
+}
+.nav-links {
+  display: flex;
+  flex-wrap: wrap;
+}
+@media (max-width: 600px) {
+  .nav-links {
+    display: none;
+    width: 100%;
+    flex-direction: column;
+  }
+  .nav-links a {
+    padding: 0.5rem 0;
+    border-top: 1px solid #444;
+  }
+  .nav-toggle {
+    display: block;
+  }
+}
+</style>
+<nav class="navbar">
+  <a href="{{ url_for('index') }}" class="logo">Home</a>
+  <span class="nav-toggle">&#9776;</span>
+  <div class="nav-links">
+    {% if session.get('token') %}
+    <a href="{{ url_for('repos') }}">Repositories</a>
+    {% endif %}
+    {% if repo_name %}
+    <a href="{{ url_for('repo', full_name=repo_name) }}">Pull Requests</a>
+    <a href="{{ url_for('branches', full_name=repo_name) }}">Branches</a>
+    {% endif %}
+  </div>
+</nav>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const toggle = document.querySelector('.nav-toggle');
+  const links = document.querySelector('.nav-links');
+  if (toggle && links) {
+    toggle.addEventListener('click', () => {
+      links.style.display = links.style.display === 'block' ? 'none' : 'block';
+    });
+  }
+});
+</script>
+"""
+
 
 def load_config() -> dict:
     if os.path.exists(CONFIG_FILE):
@@ -89,7 +156,7 @@ def index():
     if token:
         session["token"] = token
     return render_template_string(
-        """
+        NAV_TEMPLATE + """
         <h2>GitHub Bulk Merger - Web</h2>
         {% if token %}<p>Token configured.</p>{% endif %}
         <form method='post'>
@@ -109,6 +176,7 @@ def index():
         """,
         token=token,
         saved_tokens=saved_tokens,
+        repo_name=None,
     )
 
 
@@ -124,7 +192,7 @@ def repos():
         flash(f"Failed to load repositories: {e.data}")
         return redirect(url_for("index"))
     return render_template_string(
-        """
+        NAV_TEMPLATE + """
         <h2>Select Repository</h2>
         <ul>
         {% for repo in repos %}
@@ -136,6 +204,7 @@ def repos():
         </ul>
         """,
         repos=repos,
+        repo_name=None,
     )
 
 
@@ -172,7 +241,7 @@ def repo(full_name):
         flash("Action completed")
     open_prs = list(repo.get_pulls(state="open", sort="created"))
     return render_template_string(
-        """
+        NAV_TEMPLATE + """
         <h2>Repository: {{full_name}}</h2>
         <form method='post'>
         <table id='pr-table'>
@@ -259,6 +328,7 @@ def repo(full_name):
         """,
         full_name=full_name,
         open_prs=open_prs,
+        repo_name=full_name,
     )
 
 
@@ -280,7 +350,7 @@ def branches(full_name):
         flash("Action completed")
     branches = list(repo.get_branches())
     return render_template_string(
-        """
+        NAV_TEMPLATE + """
         <h2>Branches: {{full_name}}</h2>
         <form method='post'>
         <table id='branch-table'>
@@ -365,6 +435,7 @@ def branches(full_name):
         """,
         full_name=full_name,
         branches=branches,
+        repo_name=full_name,
     )
 
 
