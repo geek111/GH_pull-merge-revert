@@ -132,7 +132,7 @@ class BulkMerger(tk.Tk):
         progress_frame = ttk.Frame(frm)
         progress_frame.grid(row=7, column=0, columnspan=4, sticky=tk.EW, pady=5)
         progress_frame.columnconfigure(0, weight=1)
-        self.progress_text = tk.StringVar(value="0%")
+        self.progress_text = tk.StringVar(value="0% - Ready")
         self.progress_label = tk.Label(
             progress_frame,
             textvariable=self.progress_text,
@@ -141,7 +141,14 @@ class BulkMerger(tk.Tk):
             anchor="center",
         )
         self.progress_label.grid(row=0, column=0, sticky="ew")
-        self.progress = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
+        style = ttk.Style()
+        style.configure("Loading.Horizontal.TProgressbar", foreground="#1E90FF", background="#1E90FF")
+        self.progress = ttk.Progressbar(
+            progress_frame,
+            variable=self.progress_var,
+            maximum=100,
+            style="Loading.Horizontal.TProgressbar",
+        )
         self.progress.grid(row=1, column=0, sticky="ew")
         faded = blend_colors(self.progress_label, self.progress_label.cget("fg"), status_bg, 0.5)
         self.progress_label.configure(fg=faded)
@@ -164,7 +171,9 @@ class BulkMerger(tk.Tk):
         self.set_progress(0)
 
     def update_progress_text(self):
-        self.progress_text.set(f"{int(self.progress_var.get())}%")
+        percent = int(self.progress_var.get())
+        status = self.status_var.get()
+        self.progress_text.set(f"{percent}% - {status}")
 
 
 
@@ -412,7 +421,7 @@ class BranchManager(tk.Toplevel):
         self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.status_var = tk.StringVar(value="Ready")
         self.progress_var = tk.DoubleVar(value=0)
-        self.progress_text = tk.StringVar(value="0%")
+        self.progress_text = tk.StringVar(value="0% - Ready")
         self.branch_vars = {}
         self.branches = []
         self.branch_statuses = {}
@@ -444,7 +453,9 @@ class BranchManager(tk.Toplevel):
         self.destroy()
 
     def update_progress_text(self):
-        self.progress_text.set(f"{int(self.progress_var.get())}%")
+        percent = int(self.progress_var.get())
+        status = self.status_var.get()
+        self.progress_text.set(f"{percent}% - {status}")
 
     def _reset_branch_data(self):
         """Clear tree and stored branch information."""
@@ -548,7 +559,14 @@ class BranchManager(tk.Toplevel):
             anchor="center",
         )
         self.progress_label.grid(row=0, column=0, sticky="ew")
-        self.progress = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
+        style = ttk.Style()
+        style.configure("Loading.Horizontal.TProgressbar", foreground="#1E90FF", background="#1E90FF")
+        self.progress = ttk.Progressbar(
+            progress_frame,
+            variable=self.progress_var,
+            maximum=100,
+            style="Loading.Horizontal.TProgressbar",
+        )
         self.progress.grid(row=1, column=0, sticky="ew")
         faded = blend_colors(self.progress_label, self.progress_label.cget("fg"), status_bg, 0.5)
         self.progress_label.configure(fg=faded)
