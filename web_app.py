@@ -16,7 +16,44 @@ from github.GithubException import GithubException
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
 
-__version__ = "1.7.1"
+__version__ = "1.8.0"
+
+NAV_HEADER = """
+<style>
+body {font-family: Arial, sans-serif; margin:0; padding:0;}
+nav {background:#333; color:#fff; display:flex; align-items:center; padding:0 1em;}
+nav .nav-title {flex-grow:1; font-weight:bold;}
+nav ul {list-style:none; margin:0; padding:0; display:flex;}
+nav li {margin-left:1em;}
+nav a {color:#fff; text-decoration:none;}
+#nav-toggle {display:none; background:none; border:none; color:#fff; font-size:1.5em;}
+@media (max-width:600px){
+  nav ul{flex-direction:column; display:none; width:100%;}
+  nav li{margin:0.5em 0;}
+  #nav-toggle{display:block;}
+}
+</style>
+<nav id='navbar'>
+  <div class='nav-title'>GitHub Bulk Merger</div>
+  <button id='nav-toggle'>☰</button>
+  <ul id='nav-menu'>
+    <li><a href='{{ url_for("index") }}'>Home</a></li>
+    {% if token %}<li><a href='{{ url_for("repos") }}'>Repositories</a></li>{% endif %}
+  </ul>
+</nav>
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  const toggle=document.getElementById('nav-toggle');
+  const menu=document.getElementById('nav-menu');
+  if(toggle){
+    toggle.addEventListener('click',()=>{
+      if(menu.style.display==='flex'){menu.style.display='none';}
+      else{menu.style.display='flex'; menu.style.flexDirection='column';}
+    });
+  }
+});
+</script>
+"""
 
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
@@ -89,7 +126,7 @@ def index():
     if token:
         session["token"] = token
     return render_template_string(
-        """
+        NAV_HEADER + """
         <h2>GitHub Bulk Merger - Web</h2>
         {% if token %}<p>Token configured.</p>{% endif %}
         <form method='post'>
@@ -124,7 +161,7 @@ def repos():
         flash(f"Failed to load repositories: {e.data}")
         return redirect(url_for("index"))
     return render_template_string(
-        """
+        NAV_HEADER + """
         <h2>Select Repository</h2>
         <ul>
         {% for repo in repos %}
@@ -172,7 +209,7 @@ def repo(full_name):
         flash("Action completed")
     open_prs = list(repo.get_pulls(state="open", sort="created"))
     return render_template_string(
-        """
+        NAV_HEADER + """
         <h2>Repository: {{full_name}}</h2>
         <form method='post'>
         <table id='pr-table'>
@@ -280,7 +317,7 @@ def branches(full_name):
         flash("Action completed")
     branches = list(repo.get_branches())
     return render_template_string(
-        """
+        NAV_HEADER + """
         <h2>Branches: {{full_name}}</h2>
         <form method='post'>
         <table id='branch-table'>
