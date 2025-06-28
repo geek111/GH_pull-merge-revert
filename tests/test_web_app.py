@@ -30,6 +30,8 @@ class WebAppTestCase(unittest.TestCase):
             pr.number = 1
             pr.title = 'Test'
             pr.html_url = 'https://github.com/owner/repo/pull/1'
+            pr.state = 'open'
+            pr.merged = False
             repo.get_pulls.return_value = [pr]
             g.get_repo.return_value = repo
             with self.client.session_transaction() as sess:
@@ -37,6 +39,7 @@ class WebAppTestCase(unittest.TestCase):
             resp = self.client.get('/repo/owner/repo')
             self.assertEqual(resp.status_code, 200)
             self.assertIn(pr.html_url.encode(), resp.data)
+            self.assertIn(b'Status', resp.data)
 
     def test_index_page_loads(self):
         resp = self.client.get('/')
