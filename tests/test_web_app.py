@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import patch, Mock
+import datetime
 from web_app import app
 
 class WebAppTestCase(unittest.TestCase):
@@ -31,6 +32,9 @@ class WebAppTestCase(unittest.TestCase):
             pr.number = 1
             pr.title = 'Test'
             pr.html_url = 'https://github.com/owner/repo/pull/1'
+            pr.created_at = datetime.datetime.now()
+            pr.state = 'open'
+            pr.merged = False
             repo.get_pulls.return_value = [pr]
             g.get_repo.return_value = repo
             with self.client.session_transaction() as sess:
@@ -39,6 +43,7 @@ class WebAppTestCase(unittest.TestCase):
             self.assertEqual(resp.status_code, 200)
             data = resp.get_json()
             self.assertEqual(data['pulls'][0]['html_url'], pr.html_url)
+            self.assertEqual(data['pulls'][0]['status'], 'open')
 
     def test_index_page_loads(self):
         resp = self.client.get('/')
