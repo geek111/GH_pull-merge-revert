@@ -185,27 +185,94 @@ def repos():
     token = session.get("token")
     if not token:
         return redirect(url_for("index"))
-    g = Github(token, per_page=100)
-    try:
-        repos = list(g.get_user().get_repos())
-    except GithubException as e:
-        flash(f"Failed to load repositories: {e.data}")
-        return redirect(url_for("index"))
     return render_template_string(
         NAV_TEMPLATE + """
         <h2>Select Repository</h2>
-        <ul>
-        {% for repo in repos %}
-          <li>
-            <a href='{{ url_for("repo", full_name=repo.full_name) }}'>{{ repo.full_name }}</a>
-            - <a href='{{ repo.html_url }}' target='_blank'>GitHub</a>
-          </li>
-        {% endfor %}
-        </ul>
+        <div class='progress-container'>
+          <div class='progress-bar' id='progress-bar'></div>
+          <span class='progress-text' id='progress-text'>0% - Loading</span>
+        </div>
+        <ul id='repo-list'></ul>
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+          const bar = document.getElementById('progress-bar');
+          const text = document.getElementById('progress-text');
+          const list = document.getElementById('repo-list');
+          const es = new EventSource('{{ url_for('repos_stream') }}');
+          es.onmessage = function(e) {
+            const data = JSON.parse(e.data);
+            bar.style.width = data.progress + '%';
+            text.textContent = data.progress + '% - Loading';
+            if (data.repos) {
+              text.textContent = '100% - Done';
+              list.innerHTML = data.repos.map(r =>
+                `<li><a href='${r.url}'>${r.full_name}</a> - <a href='${r.html_url}' target='_blank'>GitHub</a></li>`
+              ).join('');
+              es.close();
+            }
+          };
+        });
+        </script>
+        <style>
+        .progress-container { position: relative; width: 100%; background: #ddd; height: 1.2rem; margin: 0.5rem 0; }
+        .progress-bar { position: absolute; top: 0; left: 0; height: 100%; width: 0; background: #1E90FF; }
+        .progress-text { position: absolute; width: 100%; text-align: center; line-height: 1.2rem; color: #fff; }
+        </style>
         """,
-        repos=repos,
         repo_name=None,
     )
+
+
+@app.route("/repos_stream")
+def repos_stream():
+    token = session.get("token")
+    if not token:
+        return Response("data: {}\n\n", mimetype="text/event-stream")
+
+    def generate():
+        g = Github(token, per_page=100)
+        repos = g.get_user().get_repos()
+        total = getattr(repos, "totalCount", None)
+        repo_list = []
+        for idx, r in enumerate(repos):
+            repo_list.append({
+                "full_name": r.full_name,
+                "html_url": r.html_url,
+                "url": url_for("repo", full_name=r.full_name),
+            })
+            if total:
+                progress = int(((idx + 1) / total) * 100)
+                yield f"data: {{\"progress\": {progress}}}\n\n"
+        yield f"data: {{\"progress\": 100, \"repos\": {json.dumps(repo_list)}}}\n\n"
+
+    return Response(stream_with_context(generate()), mimetype="text/event-stream")
+
+
+@app.route("/repo/<path:full_name>/prs_stream")
+def prs_stream(full_name):
+    token = session.get("token")
+    if not token:
+        return Response("data: {}\n\n", mimetype="text/event-stream")
+
+    def generate():
+        g = Github(token, per_page=100)
+        repo = g.get_repo(full_name)
+        pulls = repo.get_pulls(state="open", sort="created")
+        total = getattr(pulls, "totalCount", None)
+        pr_list = []
+        for idx, pr in enumerate(pulls):
+            pr_list.append({
+                "number": pr.number,
+                "title": pr.title,
+                "created": pr.created_at.strftime("%Y-%m-%d %H:%M"),
+                "html_url": pr.html_url,
+            })
+            if total:
+                progress = int(((idx + 1) / total) * 100)
+                yield f"data: {{\"progress\": {progress}}}\n\n"
+        yield f"data: {{\"progress\": 100, \"prs\": {json.dumps(pr_list)}}}\n\n"
+
+    return Response(stream_with_context(generate()), mimetype="text/event-stream")
 
 
 @app.route("/repo/<path:full_name>", methods=["GET", "POST"])
@@ -239,11 +306,14 @@ def repo(full_name):
             for pr in prs:
                 pr.edit(state="closed")
         flash("Action completed")
-    open_prs = list(repo.get_pulls(state="open", sort="created"))
     return render_template_string(
         NAV_TEMPLATE + """
         <h2>Repository: {{full_name}}</h2>
         <form method='post'>
+        <div class='progress-container'>
+          <div class='progress-bar' id='progress-bar'></div>
+          <span class='progress-text' id='progress-text'>0% - Loading</span>
+        </div>
         <table id='pr-table'>
           <thead>
             <tr>
@@ -253,16 +323,7 @@ def repo(full_name):
               <th>PR</th>
             </tr>
           </thead>
-          <tbody>
-          {% for pr in open_prs %}
-            <tr class='pr-row'>
-              <td><input type='checkbox' class='pr-checkbox' name='pr' value='{{pr.number}}'></td>
-              <td>{{ pr.title }}</td>
-              <td data-sort='{{ pr.created_at.isoformat() }}'>{{ pr.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-              <td><a href='{{ pr.html_url }}' target='_blank'>#{{ pr.number }}</a></td>
-            </tr>
-          {% endfor %}
-          </tbody>
+          <tbody></tbody>
         </table>
         <button type='submit' name='action' value='merge'>Merge Selected</button>
         <button type='submit' name='action' value='revert'>Revert Selected</button>
@@ -270,7 +331,7 @@ def repo(full_name):
         </form>
         <p><a href='{{ url_for("branches", full_name=full_name) }}'>Manage Branches</a></p>
         <script>
-        document.addEventListener('DOMContentLoaded', function() {
+        function setupPrTable() {
           const rows = Array.from(document.querySelectorAll('.pr-row'));
           const boxes = rows.map(r => r.querySelector('.pr-checkbox'));
           let last = null;
@@ -323,11 +384,40 @@ def repo(full_name):
             newRows.forEach(r => tbody.appendChild(r));
             dateHeader.dataset.order = asc ? 'asc' : 'desc';
           });
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+          const bar = document.getElementById('progress-bar');
+          const text = document.getElementById('progress-text');
+          const tbody = document.getElementById('pr-table').tBodies[0];
+          const es = new EventSource('{{ url_for('prs_stream', full_name=full_name) }}');
+          es.onmessage = function(e) {
+            const data = JSON.parse(e.data);
+            bar.style.width = data.progress + '%';
+            text.textContent = data.progress + '% - Loading';
+            if (data.prs) {
+              text.textContent = '100% - Done';
+              tbody.innerHTML = data.prs.map(pr =>
+                `<tr class='pr-row'>`+
+                `<td><input type='checkbox' class='pr-checkbox' name='pr' value='${pr.number}'></td>`+
+                `<td>${pr.title}</td>`+
+                `<td data-sort='${pr.created}'>${pr.created}</td>`+
+                `<td><a href='${pr.html_url}' target='_blank'>#${pr.number}</a></td>`+
+                `</tr>`
+              ).join('');
+              es.close();
+              setupPrTable();
+            }
+          };
         });
         </script>
+        <style>
+        .progress-container { position: relative; width: 100%; background: #ddd; height: 1.2rem; margin: 0.5rem 0; }
+        .progress-bar { position: absolute; top: 0; left: 0; height: 100%; width: 0; background: #1E90FF; }
+        .progress-text { position: absolute; width: 100%; text-align: center; line-height: 1.2rem; color: #fff; }
+        </style>
         """,
         full_name=full_name,
-        open_prs=open_prs,
         repo_name=full_name,
     )
 

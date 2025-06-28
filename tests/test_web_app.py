@@ -17,7 +17,7 @@ class WebAppTestCase(unittest.TestCase):
             user.get_repos.return_value = [repo]
             with self.client.session_transaction() as sess:
                 sess['token'] = 'token'
-            resp = self.client.get('/repos')
+            resp = self.client.get('/repos_stream')
             self.assertEqual(resp.status_code, 200)
             self.assertIn(repo.html_url.encode(), resp.data)
 
@@ -34,7 +34,7 @@ class WebAppTestCase(unittest.TestCase):
             g.get_repo.return_value = repo
             with self.client.session_transaction() as sess:
                 sess['token'] = 'token'
-            resp = self.client.get('/repo/owner/repo')
+            resp = self.client.get('/repo/owner/repo/prs_stream')
             self.assertEqual(resp.status_code, 200)
             self.assertIn(pr.html_url.encode(), resp.data)
 
