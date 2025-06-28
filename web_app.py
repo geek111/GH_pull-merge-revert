@@ -239,30 +239,32 @@ def repo(full_name):
             for pr in prs:
                 pr.edit(state="closed")
         flash("Action completed")
-    open_prs = list(repo.get_pulls(state="open", sort="created"))
+    prs = list(repo.get_pulls(state="all", sort="created"))
     return render_template_string(
         NAV_TEMPLATE + """
         <h2>Repository: {{full_name}}</h2>
         <form method='post'>
         <table id='pr-table'>
-          <thead>
-            <tr>
-              <th></th>
-              <th>Title</th>
-              <th id='date-header' data-order='asc'>Date</th>
-              <th>PR</th>
-            </tr>
-          </thead>
-          <tbody>
-          {% for pr in open_prs %}
-            <tr class='pr-row'>
-              <td><input type='checkbox' class='pr-checkbox' name='pr' value='{{pr.number}}'></td>
-              <td>{{ pr.title }}</td>
-              <td data-sort='{{ pr.created_at.isoformat() }}'>{{ pr.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-              <td><a href='{{ pr.html_url }}' target='_blank'>#{{ pr.number }}</a></td>
-            </tr>
-          {% endfor %}
-          </tbody>
+            <thead>
+              <tr>
+                <th></th>
+                <th>Title</th>
+                <th id='date-header' data-order='asc'>Date</th>
+                <th>Status</th>
+                <th>PR</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for pr in prs %}
+              <tr class='pr-row'>
+                <td><input type='checkbox' class='pr-checkbox' name='pr' value='{{pr.number}}'></td>
+                <td>{{ pr.title }}</td>
+                <td data-sort='{{ pr.created_at.isoformat() }}'>{{ pr.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                <td>{{ 'merged' if pr.merged else pr.state }}</td>
+                <td><a href='{{ pr.html_url }}' target='_blank'>#{{ pr.number }}</a></td>
+              </tr>
+            {% endfor %}
+            </tbody>
         </table>
         <button type='submit' name='action' value='merge'>Merge Selected</button>
         <button type='submit' name='action' value='revert'>Revert Selected</button>
@@ -327,7 +329,7 @@ def repo(full_name):
         </script>
         """,
         full_name=full_name,
-        open_prs=open_prs,
+        prs=prs,
         repo_name=full_name,
     )
 
