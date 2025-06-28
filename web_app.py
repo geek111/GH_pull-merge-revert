@@ -23,6 +23,49 @@ BRANCH_CACHE_FILE = "branch_cache.json"
 CONFIG_FILE = "config.json"
 
 
+# Simple responsive navigation bar used across pages
+NAV_TEMPLATE = """
+<style>
+body { margin:0; font-family: Arial, sans-serif; }
+.navbar { display:flex; background:#333; color:#fff; padding:10px; align-items:center; }
+.navbar .brand { font-size:1.2em; }
+.navbar .menu { list-style:none; margin:0; padding:0; display:flex; }
+.navbar .menu li { margin-left:10px; }
+.navbar a { color:#fff; text-decoration:none; }
+.menu-toggle { display:none; background:none; border:none; color:#fff; font-size:1.3em; margin-left:auto; }
+@media(max-width:600px){
+  .navbar .menu { display:none; flex-direction:column; width:100%; }
+  .navbar .menu.open { display:flex; }
+  .menu-toggle { display:block; }
+  .navbar .brand { margin-right:auto; }
+}
+</style>
+<nav class='navbar'>
+  <span class='brand'>GitHub Bulk Merger</span>
+  <button class='menu-toggle'>&#9776;</button>
+  <ul class='menu'>
+    <li><a href='{{ url_for("index") }}'>Home</a></li>
+    {% if session.get('token') %}<li><a href='{{ url_for("repos") }}'>Repositories</a></li>{% endif %}
+  </ul>
+</nav>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const toggle = document.querySelector('.menu-toggle');
+  const menu = document.querySelector('.menu');
+  if (toggle) {
+    toggle.addEventListener('click', () => menu.classList.toggle('open'));
+  }
+});
+</script>
+"""
+
+
+def render_page(content: str, **context) -> str:
+    """Wrap page content with the navigation bar."""
+    template = NAV_TEMPLATE + content
+    return render_template_string(template, **context)
+
+
 def load_config() -> dict:
     if os.path.exists(CONFIG_FILE):
         try:
@@ -88,7 +131,7 @@ def index():
     token = session.get("token")
     if token:
         session["token"] = token
-    return render_template_string(
+    return render_page(
         """
         <h2>GitHub Bulk Merger - Web</h2>
         {% if token %}<p>Token configured.</p>{% endif %}
@@ -123,7 +166,7 @@ def repos():
     except GithubException as e:
         flash(f"Failed to load repositories: {e.data}")
         return redirect(url_for("index"))
-    return render_template_string(
+    return render_page(
         """
         <h2>Select Repository</h2>
         <ul>
@@ -171,7 +214,7 @@ def repo(full_name):
                 pr.edit(state="closed")
         flash("Action completed")
     open_prs = list(repo.get_pulls(state="open", sort="created"))
-    return render_template_string(
+    return render_page(
         """
         <h2>Repository: {{full_name}}</h2>
         <form method='post'>
@@ -279,7 +322,7 @@ def branches(full_name):
                 flash(f"Failed to delete {name}: {e.data}")
         flash("Action completed")
     branches = list(repo.get_branches())
-    return render_template_string(
+    return render_page(
         """
         <h2>Branches: {{full_name}}</h2>
         <form method='post'>
