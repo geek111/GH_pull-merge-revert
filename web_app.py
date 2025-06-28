@@ -16,7 +16,7 @@ from github.GithubException import GithubException
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
 
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
@@ -209,7 +209,7 @@ def api_pulls(full_name: str) -> dict:
         return {"error": "unauthorized"}, 401
     g = Github(token, per_page=100)
     repo = g.get_repo(full_name)
-    pulls = repo.get_pulls(state="open", sort="created")
+    pulls = repo.get_pulls(state="all", sort="created")
     return {
         "pulls": [
             {
@@ -217,6 +217,7 @@ def api_pulls(full_name: str) -> dict:
                 "title": pr.title,
                 "html_url": pr.html_url,
                 "created_at": pr.created_at.isoformat(),
+                "status": pr.state,
             }
             for pr in pulls
         ]
@@ -337,6 +338,7 @@ def repo(full_name):
               <th></th>
               <th>Title</th>
               <th id='date-header' data-order='asc'>Date</th>
+              <th>Status</th>
               <th>PR</th>
             </tr>
           </thead>
@@ -416,6 +418,7 @@ def repo(full_name):
                 tr.innerHTML = `<td><input type='checkbox' class='pr-checkbox' name='pr' value='${pr.number}'></td>` +
                                `<td>${pr.title}</td>` +
                                `<td data-sort='${pr.created_at}'>${pr.created_at.slice(0,16).replace('T',' ')}</td>` +
+                               `<td>${pr.status}</td>` +
                                `<td><a href='${pr.html_url}' target='_blank'>#${pr.number}</a></td>`;
                 tbody.appendChild(tr);
                 const pct = Math.round(((idx + 1) / data.pulls.length) * 100);
