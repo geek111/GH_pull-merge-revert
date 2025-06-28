@@ -281,13 +281,19 @@ class BulkMerger(tk.Tk):
                 for widget in self.pr_frame.winfo_children():
                     widget.destroy()
                 self.pr_vars.clear()
-                for i, pr in enumerate(self.prs):
+
+                ttk.Label(self.pr_frame, text="Pull Request").grid(row=0, column=0, sticky=tk.W)
+                ttk.Label(self.pr_frame, text="Status").grid(row=0, column=1, sticky=tk.W, padx=(10, 0))
+
+                for i, pr in enumerate(self.prs, start=1):
                     var = tk.BooleanVar()
+                    status = "merged" if pr.merged else pr.state
                     ttk.Checkbutton(
                         self.pr_frame,
                         text=f"#{pr.number}: {pr.title}",
                         variable=var,
                     ).grid(row=i, column=0, sticky=tk.W)
+                    ttk.Label(self.pr_frame, text=status).grid(row=i, column=1, sticky=tk.W, padx=(10, 0))
                     self.pr_vars.append(var)
                 self.log(f"Loaded {len(self.prs)} pull requests.")
                 self.set_progress(100)

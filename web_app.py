@@ -1,6 +1,7 @@
 import os
 import subprocess
 import json
+import datetime
 from flask import (
     Flask,
     render_template_string,
@@ -216,7 +217,11 @@ def api_pulls(full_name: str) -> dict:
                 "number": pr.number,
                 "title": pr.title,
                 "html_url": pr.html_url,
-                "created_at": pr.created_at.isoformat(),
+                "created_at": (
+                    pr.created_at.isoformat()
+                    if isinstance(getattr(pr, "created_at", None), datetime.datetime)
+                    else str(getattr(pr, "created_at", ""))
+                ),
             }
             for pr in pulls
         ]
