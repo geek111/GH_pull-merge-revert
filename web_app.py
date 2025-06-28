@@ -239,7 +239,7 @@ def repo(full_name):
             for pr in prs:
                 pr.edit(state="closed")
         flash("Action completed")
-    open_prs = list(repo.get_pulls(state="open", sort="created"))
+    prs = list(repo.get_pulls(state="all", sort="created"))
     return render_template_string(
         NAV_TEMPLATE + """
         <h2>Repository: {{full_name}}</h2>
@@ -251,15 +251,17 @@ def repo(full_name):
               <th>Title</th>
               <th id='date-header' data-order='asc'>Date</th>
               <th>PR</th>
+              <th>Status</th>
             </tr>
           </thead>
           <tbody>
-          {% for pr in open_prs %}
+          {% for pr in prs %}
             <tr class='pr-row'>
               <td><input type='checkbox' class='pr-checkbox' name='pr' value='{{pr.number}}'></td>
               <td>{{ pr.title }}</td>
               <td data-sort='{{ pr.created_at.isoformat() }}'>{{ pr.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
               <td><a href='{{ pr.html_url }}' target='_blank'>#{{ pr.number }}</a></td>
+              <td>{{ 'merged' if pr.merged else pr.state }}</td>
             </tr>
           {% endfor %}
           </tbody>
@@ -327,7 +329,7 @@ def repo(full_name):
         </script>
         """,
         full_name=full_name,
-        open_prs=open_prs,
+        prs=prs,
         repo_name=full_name,
     )
 
