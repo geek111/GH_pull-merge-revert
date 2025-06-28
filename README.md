@@ -1,6 +1,6 @@
 # GitHub Bulk Merger
 
-Version 1.7.1
+Version 1.8.1
 
 This repository contains a small GUI tool written in Python that allows you to
 select multiple pull requests from a repository and merge them in bulk or revert
