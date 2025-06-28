@@ -9,6 +9,7 @@ from flask import (
     url_for,
     session,
     flash,
+    Response,
 )
 from github import Github
 from github.GithubException import GithubException
@@ -16,7 +17,7 @@ from github.GithubException import GithubException
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
 
-__version__ = "1.7.1"
+__version__ = "1.8.0"
 
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
@@ -206,6 +207,71 @@ def repos():
         repos=repos,
         repo_name=None,
     )
+
+
+@app.route("/repos_async")
+def repos_async():
+    token = session.get("token")
+    if not token:
+        return redirect(url_for("index"))
+    return render_template_string(
+        NAV_TEMPLATE + """
+        <h2>Select Repository</h2>
+        <div id='progress-container' style='position:relative;width:100%;height:24px;'>
+          <div id='progress-bar' style='width:0%;height:100%;background-color:#1E90FF;'></div>
+          <span id='progress-text' style='position:absolute;left:50%;top:0;transform:translateX(-50%);color:white;'>0% - Loading</span>
+        </div>
+        <ul id='repo-list'></ul>
+        <script>
+        const es = new EventSource('{{ url_for('repos_stream') }}');
+        const bar = document.getElementById('progress-bar');
+        const text = document.getElementById('progress-text');
+        const list = document.getElementById('repo-list');
+        es.onmessage = evt => {
+          const data = JSON.parse(evt.data);
+          if (data.name) {
+            const li = document.createElement('li');
+            li.innerHTML = `<a href='${data.url}'>${data.name}</a> - <a href='${data.html}' target='_blank'>GitHub</a>`;
+            list.appendChild(li);
+          }
+          if (data.percent !== undefined) {
+            bar.style.width = data.percent + '%';
+            text.textContent = `${data.percent}% - ${data.status}`;
+          }
+        };
+        es.onerror = () => es.close();
+        </script>
+        """,
+        repo_name=None,
+    )
+
+
+@app.route("/repos_stream")
+def repos_stream():
+    token = session.get("token")
+
+    def generate():
+        if not token:
+            yield f"data: {json.dumps({'percent': 0, 'status': 'Unauthorized'})}\n\n"
+            return
+        g = Github(token, per_page=100)
+        repos = g.get_user().get_repos()
+        total = getattr(repos, "totalCount", None)
+        count = 0
+        for r in repos:
+            count += 1
+            percent = int(count / total * 100) if total else 0
+            payload = {
+                'name': r.full_name,
+                'url': url_for('repo', full_name=r.full_name),
+                'html': r.html_url,
+                'percent': percent,
+                'status': 'Loading'
+            }
+            yield f"data: {json.dumps(payload)}\n\n"
+        yield f"data: {json.dumps({'percent': 100, 'status': 'Done'})}\n\n"
+
+    return Response(generate(), mimetype="text/event-stream")
 
 
 @app.route("/repo/<path:full_name>", methods=["GET", "POST"])
