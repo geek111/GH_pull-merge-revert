@@ -76,6 +76,9 @@ NAV_TEMPLATE = """
     {% endif %}
   </div>
 </nav>
+<div id="progress-container">
+  <div id="progress-bar"><span id="progress-text">0% - Ready</span></div>
+</div>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   const toggle = document.querySelector('.nav-toggle');
@@ -85,8 +88,47 @@ document.addEventListener('DOMContentLoaded', function() {
       links.style.display = links.style.display === 'block' ? 'none' : 'block';
     });
   }
+  updateProgress(100, 'Ready');
+  document.querySelectorAll('form').forEach(f => {
+    f.addEventListener('submit', () => {
+      updateProgress(10, 'Processing');
+    });
+  });
 });
+
+function updateProgress(percent, status) {
+  const bar = document.getElementById('progress-bar');
+  const text = document.getElementById('progress-text');
+  if (bar && text) {
+    bar.style.width = percent + '%';
+    text.textContent = percent + '% - ' + status;
+  }
+}
 </script>
+<style>
+#progress-container {
+  width: 100%;
+  background: #f0f0f0;
+  height: 20px;
+  position: relative;
+  margin-top: 0.5rem;
+}
+#progress-bar {
+  height: 100%;
+  width: 0%;
+  background: #1E90FF;
+  position: relative;
+  transition: width 0.2s ease;
+}
+#progress-text {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  font-size: 0.8rem;
+  color: rgba(0,0,0,0.7);
+}
+</style>
 """
 
 
