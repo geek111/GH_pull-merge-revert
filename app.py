@@ -26,7 +26,7 @@ def blend_colors(widget, fg, bg, alpha=0.5):
 CONFIG_FILE = "config.json"
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
-__version__ = "1.5.0"
+__version__ = "1.8.0"
 
 
 def load_branch_cache():
@@ -141,7 +141,31 @@ class BulkMerger(tk.Tk):
             anchor="center",
         )
         self.progress_label.grid(row=0, column=0, sticky="ew")
-        self.progress = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
+        self.progress_style_main = ttk.Style()
+        self.progress_style_main.layout(
+            "Status.Horizontal.TProgressbar",
+            [
+                (
+                    "Horizontal.Progressbar.trough",
+                    {
+                        "children": [
+                            ("Horizontal.Progressbar.pbar", {"side": "left", "sticky": "ns"}),
+                            ("Horizontal.Progressbar.label", {"sticky": ""}),
+                        ],
+                        "sticky": "nswe",
+                    },
+                )
+            ],
+        )
+        self.progress_style_main.configure(
+            "Status.Horizontal.TProgressbar", text="", anchor="center"
+        )
+        self.progress = ttk.Progressbar(
+            progress_frame,
+            variable=self.progress_var,
+            maximum=100,
+            style="Status.Horizontal.TProgressbar",
+        )
         self.progress.grid(row=1, column=0, sticky="ew")
         faded = blend_colors(self.progress_label, self.progress_label.cget("fg"), status_bg, 0.5)
         self.progress_label.configure(fg=faded)
@@ -164,7 +188,13 @@ class BulkMerger(tk.Tk):
         self.set_progress(0)
 
     def update_progress_text(self):
-        self.progress_text.set(f"{int(self.progress_var.get())}%")
+        percent = int(self.progress_var.get())
+        self.progress_text.set(f"{percent}%")
+        if hasattr(self, "progress_style_main"):
+            self.progress_style_main.configure(
+                "Status.Horizontal.TProgressbar",
+                text=f"{percent}% {self.status_var.get()}",
+            )
 
 
 
@@ -444,7 +474,13 @@ class BranchManager(tk.Toplevel):
         self.destroy()
 
     def update_progress_text(self):
-        self.progress_text.set(f"{int(self.progress_var.get())}%")
+        percent = int(self.progress_var.get())
+        self.progress_text.set(f"{percent}%")
+        if hasattr(self, "progress_style_branch"):
+            self.progress_style_branch.configure(
+                "Status.Horizontal.TProgressbar",
+                text=f"{percent}% {self.status_var.get()}",
+            )
 
     def _reset_branch_data(self):
         """Clear tree and stored branch information."""
@@ -548,7 +584,31 @@ class BranchManager(tk.Toplevel):
             anchor="center",
         )
         self.progress_label.grid(row=0, column=0, sticky="ew")
-        self.progress = ttk.Progressbar(progress_frame, variable=self.progress_var, maximum=100)
+        self.progress_style_branch = ttk.Style()
+        self.progress_style_branch.layout(
+            "Status.Horizontal.TProgressbar",
+            [
+                (
+                    "Horizontal.Progressbar.trough",
+                    {
+                        "children": [
+                            ("Horizontal.Progressbar.pbar", {"side": "left", "sticky": "ns"}),
+                            ("Horizontal.Progressbar.label", {"sticky": ""}),
+                        ],
+                        "sticky": "nswe",
+                    },
+                )
+            ],
+        )
+        self.progress_style_branch.configure(
+            "Status.Horizontal.TProgressbar", text="", anchor="center"
+        )
+        self.progress = ttk.Progressbar(
+            progress_frame,
+            variable=self.progress_var,
+            maximum=100,
+            style="Status.Horizontal.TProgressbar",
+        )
         self.progress.grid(row=1, column=0, sticky="ew")
         faded = blend_colors(self.progress_label, self.progress_label.cget("fg"), status_bg, 0.5)
         self.progress_label.configure(fg=faded)
