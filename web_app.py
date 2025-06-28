@@ -16,7 +16,7 @@ from github.GithubException import GithubException
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
 
-__version__ = "1.7.1"
+__version__ = "1.8.0"
 
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
@@ -48,6 +48,29 @@ NAV_TEMPLATE = """
   display: flex;
   flex-wrap: wrap;
 }
+#progress-container {
+  width: 100%;
+  height: 20px;
+  background-color: #e0e0e0;
+  margin-top: 0.5rem;
+  position: relative;
+  display: none;
+}
+#progress-bar {
+  height: 100%;
+  width: 0%;
+  background-color: #4caf50;
+}
+#progress-text {
+  position: absolute;
+  width: 100%;
+  top: 0;
+  left: 0;
+  line-height: 20px;
+  font-size: 0.8rem;
+  text-align: center;
+  color: #000;
+}
 @media (max-width: 600px) {
   .nav-links {
     display: none;
@@ -76,7 +99,24 @@ NAV_TEMPLATE = """
     {% endif %}
   </div>
 </nav>
+<div id="progress-container">
+  <div id="progress-bar"></div>
+  <span id="progress-text">0% - Ready</span>
+</div>
 <script>
+function updateProgress(percent, status) {
+  const container = document.getElementById('progress-container');
+  const bar = document.getElementById('progress-bar');
+  const text = document.getElementById('progress-text');
+  if (container && bar && text) {
+    container.style.display = 'block';
+    bar.style.width = percent + '%';
+    text.textContent = percent + '% - ' + status;
+    if (percent >= 100) {
+      setTimeout(() => { container.style.display = 'none'; }, 500);
+    }
+  }
+}
 document.addEventListener('DOMContentLoaded', function() {
   const toggle = document.querySelector('.nav-toggle');
   const links = document.querySelector('.nav-links');
@@ -140,6 +180,49 @@ def attempt_conflict_resolution(repo_url: str, base_branch: str, pr_branch: str)
         os.chdir(cwd)
 
 
+@app.route("/api/repos")
+def api_repos() -> dict:
+    token = session.get("token")
+    if not token:
+        return {"error": "unauthorized"}, 401
+    g = Github(token, per_page=100)
+    try:
+        repos = list(g.get_user().get_repos())
+    except GithubException as e:
+        return {"error": str(e.data)}, 400
+    return {
+        "repos": [
+            {
+                "full_name": r.full_name,
+                "html_url": r.html_url,
+                "url": url_for("repo", full_name=r.full_name),
+            }
+            for r in repos
+        ]
+    }
+
+
+@app.route("/api/pulls/<path:full_name>")
+def api_pulls(full_name: str) -> dict:
+    token = session.get("token")
+    if not token:
+        return {"error": "unauthorized"}, 401
+    g = Github(token, per_page=100)
+    repo = g.get_repo(full_name)
+    pulls = repo.get_pulls(state="open", sort="created")
+    return {
+        "pulls": [
+            {
+                "number": pr.number,
+                "title": pr.title,
+                "html_url": pr.html_url,
+                "created_at": pr.created_at.isoformat(),
+            }
+            for pr in pulls
+        ]
+    }
+
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     cfg = load_config()
@@ -185,25 +268,30 @@ def repos():
     token = session.get("token")
     if not token:
         return redirect(url_for("index"))
-    g = Github(token, per_page=100)
-    try:
-        repos = list(g.get_user().get_repos())
-    except GithubException as e:
-        flash(f"Failed to load repositories: {e.data}")
-        return redirect(url_for("index"))
     return render_template_string(
         NAV_TEMPLATE + """
         <h2>Select Repository</h2>
-        <ul>
-        {% for repo in repos %}
-          <li>
-            <a href='{{ url_for("repo", full_name=repo.full_name) }}'>{{ repo.full_name }}</a>
-            - <a href='{{ repo.html_url }}' target='_blank'>GitHub</a>
-          </li>
-        {% endfor %}
-        </ul>
+        <ul id='repo-list'></ul>
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+          updateProgress(0, 'Loading repositories');
+          fetch('{{ url_for('api_repos') }}')
+            .then(r => r.json())
+            .then(data => {
+              const list = document.getElementById('repo-list');
+              data.repos.forEach((repo, idx) => {
+                const li = document.createElement('li');
+                li.innerHTML = `<a href='${repo.url}'>${repo.full_name}</a> - <a href='${repo.html_url}' target='_blank'>GitHub</a>`;
+                list.appendChild(li);
+                const pct = Math.round(((idx + 1) / data.repos.length) * 100);
+                updateProgress(pct, 'Loading repositories');
+              });
+              updateProgress(100, 'Ready');
+            })
+            .catch(() => { updateProgress(100, 'Error'); });
+        });
+        </script>
         """,
-        repos=repos,
         repo_name=None,
     )
 
@@ -239,11 +327,10 @@ def repo(full_name):
             for pr in prs:
                 pr.edit(state="closed")
         flash("Action completed")
-    open_prs = list(repo.get_pulls(state="open", sort="created"))
     return render_template_string(
         NAV_TEMPLATE + """
         <h2>Repository: {{full_name}}</h2>
-        <form method='post'>
+        <form method='post' id='action-form'>
         <table id='pr-table'>
           <thead>
             <tr>
@@ -253,16 +340,7 @@ def repo(full_name):
               <th>PR</th>
             </tr>
           </thead>
-          <tbody>
-          {% for pr in open_prs %}
-            <tr class='pr-row'>
-              <td><input type='checkbox' class='pr-checkbox' name='pr' value='{{pr.number}}'></td>
-              <td>{{ pr.title }}</td>
-              <td data-sort='{{ pr.created_at.isoformat() }}'>{{ pr.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
-              <td><a href='{{ pr.html_url }}' target='_blank'>#{{ pr.number }}</a></td>
-            </tr>
-          {% endfor %}
-          </tbody>
+          <tbody></tbody>
         </table>
         <button type='submit' name='action' value='merge'>Merge Selected</button>
         <button type='submit' name='action' value='revert'>Revert Selected</button>
@@ -270,7 +348,7 @@ def repo(full_name):
         </form>
         <p><a href='{{ url_for("branches", full_name=full_name) }}'>Manage Branches</a></p>
         <script>
-        document.addEventListener('DOMContentLoaded', function() {
+        function initPRInteractions() {
           const rows = Array.from(document.querySelectorAll('.pr-row'));
           const boxes = rows.map(r => r.querySelector('.pr-checkbox'));
           let last = null;
@@ -323,11 +401,34 @@ def repo(full_name):
             newRows.forEach(r => tbody.appendChild(r));
             dateHeader.dataset.order = asc ? 'asc' : 'desc';
           });
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+          updateProgress(0, 'Loading pull requests');
+          fetch('{{ url_for('api_pulls', full_name=full_name) }}')
+            .then(r => r.json())
+            .then(data => {
+              const tbody = document.querySelector('#pr-table tbody');
+              tbody.innerHTML = '';
+              data.pulls.forEach((pr, idx) => {
+                const tr = document.createElement('tr');
+                tr.className = 'pr-row';
+                tr.innerHTML = `<td><input type='checkbox' class='pr-checkbox' name='pr' value='${pr.number}'></td>` +
+                               `<td>${pr.title}</td>` +
+                               `<td data-sort='${pr.created_at}'>${pr.created_at.slice(0,16).replace('T',' ')}</td>` +
+                               `<td><a href='${pr.html_url}' target='_blank'>#${pr.number}</a></td>`;
+                tbody.appendChild(tr);
+                const pct = Math.round(((idx + 1) / data.pulls.length) * 100);
+                updateProgress(pct, 'Loading pull requests');
+              });
+              initPRInteractions();
+              updateProgress(100, 'Ready');
+            })
+            .catch(() => { updateProgress(100, 'Error'); });
         });
         </script>
         """,
         full_name=full_name,
-        open_prs=open_prs,
         repo_name=full_name,
     )
 

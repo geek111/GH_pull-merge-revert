@@ -17,9 +17,10 @@ class WebAppTestCase(unittest.TestCase):
             user.get_repos.return_value = [repo]
             with self.client.session_transaction() as sess:
                 sess['token'] = 'token'
-            resp = self.client.get('/repos')
+            resp = self.client.get('/api/repos')
             self.assertEqual(resp.status_code, 200)
-            self.assertIn(repo.html_url.encode(), resp.data)
+            data = resp.get_json()
+            self.assertEqual(data['repos'][0]['html_url'], repo.html_url)
 
     def test_pr_list_includes_github_links(self):
         with patch('web_app.Github') as MockGithub:
@@ -34,9 +35,10 @@ class WebAppTestCase(unittest.TestCase):
             g.get_repo.return_value = repo
             with self.client.session_transaction() as sess:
                 sess['token'] = 'token'
-            resp = self.client.get('/repo/owner/repo')
+            resp = self.client.get('/api/pulls/owner/repo')
             self.assertEqual(resp.status_code, 200)
-            self.assertIn(pr.html_url.encode(), resp.data)
+            data = resp.get_json()
+            self.assertEqual(data['pulls'][0]['html_url'], pr.html_url)
 
     def test_index_page_loads(self):
         resp = self.client.get('/')
