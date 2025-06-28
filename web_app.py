@@ -159,7 +159,7 @@ def index():
         NAV_TEMPLATE + """
         <h2>GitHub Bulk Merger - Web</h2>
         {% if token %}<p>Token configured.</p>{% endif %}
-        <form method='post'>
+        <form id='action-form'>
             {% if saved_tokens %}
             <select name='saved_token'>
               <option value=''>-- Select saved token --</option>
@@ -264,10 +264,17 @@ def repo(full_name):
           {% endfor %}
           </tbody>
         </table>
-        <button type='submit' name='action' value='merge'>Merge Selected</button>
-        <button type='submit' name='action' value='revert'>Revert Selected</button>
-        <button type='submit' name='action' value='close'>Close Selected</button>
+        <button type='button' data-action='merge'>Merge Selected</button>
+        <button type='button' data-action='revert'>Revert Selected</button>
+        <button type='button' data-action='close'>Close Selected</button>
         </form>
+        <div id='progress-box' style='display:none; margin-top:1rem;'>
+          <div id='progress-status' style='margin-bottom:0.5rem;'>Working...</div>
+          <div style='background:#eee; position:relative; height:20px;'>
+            <div id='progress-inner' style='background:#4caf50; width:0; height:100%;'></div>
+            <span id='progress-text' style='position:absolute; left:50%; top:0; transform:translateX(-50%); font-weight:bold; color:#000;'>0%</span>
+          </div>
+        </div>
         <p><a href='{{ url_for("branches", full_name=full_name) }}'>Manage Branches</a></p>
         <script>
         document.addEventListener('DOMContentLoaded', function() {
@@ -323,6 +330,34 @@ def repo(full_name):
             newRows.forEach(r => tbody.appendChild(r));
             dateHeader.dataset.order = asc ? 'asc' : 'desc';
           });
+
+          const progressBox = document.getElementById('progress-box');
+          const progressInner = document.getElementById('progress-inner');
+          const progressText = document.getElementById('progress-text');
+          const progressStatus = document.getElementById('progress-status');
+
+          async function runAction(action) {
+            const checked = Array.from(document.querySelectorAll('.pr-checkbox:checked'));
+            if (!checked.length) return;
+            progressBox.style.display = 'block';
+            for (let i = 0; i < checked.length; i++) {
+              const num = checked[i].value;
+              progressStatus.textContent = action.charAt(0).toUpperCase() + action.slice(1) + ' PR #' + num;
+              await fetch(`${window.location.pathname}/api/${num}/${action}`, {method: 'POST'});
+              const pct = Math.round(((i + 1) / checked.length) * 100);
+              progressInner.style.width = pct + '%';
+              progressText.textContent = pct + '%';
+            }
+            progressStatus.textContent = 'Done';
+            setTimeout(() => { window.location.reload(); }, 500);
+          }
+
+          document.querySelectorAll('button[data-action]').forEach(btn => {
+            btn.addEventListener('click', e => {
+              e.preventDefault();
+              runAction(btn.dataset.action);
+            });
+          });
         });
         </script>
         """,
@@ -330,6 +365,35 @@ def repo(full_name):
         open_prs=open_prs,
         repo_name=full_name,
     )
+
+
+@app.route('/repo/<path:full_name>/api/<int:number>/<action>', methods=['POST'])
+def pr_action(full_name: str, number: int, action: str):
+    token = session.get('token')
+    if not token:
+        return {'error': 'unauthorized'}, 401
+    g = Github(token, per_page=100)
+    repo = g.get_repo(full_name)
+    pr = repo.get_pull(number)
+    try:
+        if action == 'merge':
+            pr.merge()
+        elif action == 'close':
+            pr.edit(state='closed')
+        elif action == 'revert':
+            if pr.merged:
+                repo_url = repo.clone_url.replace('https://', f'https://{token}@')
+                subprocess.run(['git', 'clone', repo_url, 'tmp'], check=True)
+                subprocess.run(['git', '-C', 'tmp', 'checkout', pr.base.ref], check=True)
+                subprocess.run(['git', '-C', 'tmp', 'pull'], check=True)
+                subprocess.run(['git', '-C', 'tmp', 'revert', '-m', '1', pr.merge_commit_sha], check=True)
+                subprocess.run(['git', '-C', 'tmp', 'push', 'origin', pr.base.ref], check=True)
+                subprocess.run(['rm', '-rf', 'tmp'])
+        else:
+            return {'error': 'bad action'}, 400
+        return {'status': 'ok'}
+    except GithubException as e:
+        return {'error': str(e.data)}, 400
 
 
 @app.route("/repo/<path:full_name>/branches", methods=["GET", "POST"])
