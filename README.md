@@ -1,6 +1,6 @@
 # GitHub Bulk Merger
 
-Version 1.7.1
+Version 1.8.0
 
 This repository contains a small GUI tool written in Python that allows you to
 select multiple pull requests from a repository and merge them in bulk or revert
@@ -52,6 +52,7 @@ Open `http://127.0.0.1:5000/` in your browser and follow the instructions to mer
 The landing page now includes a **Remember token** option that persists tokens in `config.json`. Saved tokens can be selected from a drop-down list.
 You can manage and delete branches from the new **Manage Branches** page linked from each repository view.
 The branch management view now also supports range selection and drag selection similar to the pull request list.
+All pages now feature a responsive navigation bar for easier use on small screens.
 
 ## Building an executable
 

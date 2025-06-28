@@ -16,7 +16,7 @@ from github.GithubException import GithubException
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
 
-__version__ = "1.7.1"
+__version__ = "1.8.0"
 
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
@@ -90,6 +90,25 @@ def index():
         session["token"] = token
     return render_template_string(
         """
+        <style>
+        nav{display:flex;background:#333;color:#fff;padding:10px;flex-wrap:wrap;}
+        nav a{color:#fff;margin-right:10px;text-decoration:none;}
+        .nav-links{display:flex;flex-grow:1;flex-wrap:wrap;}
+        .menu-toggle{display:none;margin-left:auto;cursor:pointer;}
+        @media (max-width:600px){
+          .nav-links{display:none;width:100%;flex-direction:column;}
+          .nav-links.show{display:flex;}
+          .menu-toggle{display:block;}
+        }
+        table{width:100%;border-collapse:collapse;}
+        </style>
+        <nav>
+          <span class="menu-toggle">&#9776;</span>
+          <div class="nav-links">
+            <a href="{{ url_for('index') }}">Home</a>
+            <a href="{{ url_for('repos') }}">Repositories</a>
+          </div>
+        </nav>
         <h2>GitHub Bulk Merger - Web</h2>
         {% if token %}<p>Token configured.</p>{% endif %}
         <form method='post'>
@@ -106,6 +125,15 @@ def index():
             <label><input type='checkbox' name='remember'> Remember token</label>
             <button type='submit'>Load Repositories</button>
         </form>
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+          const t = document.querySelector('.menu-toggle');
+          const links = document.querySelector('.nav-links');
+          if (t && links) {
+            t.addEventListener('click', () => links.classList.toggle('show'));
+          }
+        });
+        </script>
         """,
         token=token,
         saved_tokens=saved_tokens,
@@ -125,6 +153,25 @@ def repos():
         return redirect(url_for("index"))
     return render_template_string(
         """
+        <style>
+        nav{display:flex;background:#333;color:#fff;padding:10px;flex-wrap:wrap;}
+        nav a{color:#fff;margin-right:10px;text-decoration:none;}
+        .nav-links{display:flex;flex-grow:1;flex-wrap:wrap;}
+        .menu-toggle{display:none;margin-left:auto;cursor:pointer;}
+        @media (max-width:600px){
+          .nav-links{display:none;width:100%;flex-direction:column;}
+          .nav-links.show{display:flex;}
+          .menu-toggle{display:block;}
+        }
+        table{width:100%;border-collapse:collapse;}
+        </style>
+        <nav>
+          <span class="menu-toggle">&#9776;</span>
+          <div class="nav-links">
+            <a href="{{ url_for('index') }}">Home</a>
+            <a href="{{ url_for('repos') }}">Repositories</a>
+          </div>
+        </nav>
         <h2>Select Repository</h2>
         <ul>
         {% for repo in repos %}
@@ -134,6 +181,15 @@ def repos():
           </li>
         {% endfor %}
         </ul>
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+          const t = document.querySelector('.menu-toggle');
+          const links = document.querySelector('.nav-links');
+          if (t && links) {
+            t.addEventListener('click', () => links.classList.toggle('show'));
+          }
+        });
+        </script>
         """,
         repos=repos,
     )
@@ -173,6 +229,25 @@ def repo(full_name):
     open_prs = list(repo.get_pulls(state="open", sort="created"))
     return render_template_string(
         """
+        <style>
+        nav{display:flex;background:#333;color:#fff;padding:10px;flex-wrap:wrap;}
+        nav a{color:#fff;margin-right:10px;text-decoration:none;}
+        .nav-links{display:flex;flex-grow:1;flex-wrap:wrap;}
+        .menu-toggle{display:none;margin-left:auto;cursor:pointer;}
+        @media (max-width:600px){
+          .nav-links{display:none;width:100%;flex-direction:column;}
+          .nav-links.show{display:flex;}
+          .menu-toggle{display:block;}
+        }
+        table{width:100%;border-collapse:collapse;}
+        </style>
+        <nav>
+          <span class="menu-toggle">&#9776;</span>
+          <div class="nav-links">
+            <a href="{{ url_for('index') }}">Home</a>
+            <a href="{{ url_for('repos') }}">Repositories</a>
+          </div>
+        </nav>
         <h2>Repository: {{full_name}}</h2>
         <form method='post'>
         <table id='pr-table'>
@@ -202,6 +277,11 @@ def repo(full_name):
         <p><a href='{{ url_for("branches", full_name=full_name) }}'>Manage Branches</a></p>
         <script>
         document.addEventListener('DOMContentLoaded', function() {
+          const t = document.querySelector('.menu-toggle');
+          const navLinks = document.querySelector('.nav-links');
+          if (t && navLinks) {
+            t.addEventListener('click', () => navLinks.classList.toggle('show'));
+          }
           const rows = Array.from(document.querySelectorAll('.pr-row'));
           const boxes = rows.map(r => r.querySelector('.pr-checkbox'));
           let last = null;
@@ -281,6 +361,25 @@ def branches(full_name):
     branches = list(repo.get_branches())
     return render_template_string(
         """
+        <style>
+        nav{display:flex;background:#333;color:#fff;padding:10px;flex-wrap:wrap;}
+        nav a{color:#fff;margin-right:10px;text-decoration:none;}
+        .nav-links{display:flex;flex-grow:1;flex-wrap:wrap;}
+        .menu-toggle{display:none;margin-left:auto;cursor:pointer;}
+        @media (max-width:600px){
+          .nav-links{display:none;width:100%;flex-direction:column;}
+          .nav-links.show{display:flex;}
+          .menu-toggle{display:block;}
+        }
+        table{width:100%;border-collapse:collapse;}
+        </style>
+        <nav>
+          <span class="menu-toggle">&#9776;</span>
+          <div class="nav-links">
+            <a href="{{ url_for('index') }}">Home</a>
+            <a href="{{ url_for('repos') }}">Repositories</a>
+          </div>
+        </nav>
         <h2>Branches: {{full_name}}</h2>
         <form method='post'>
         <table id='branch-table'>
@@ -308,6 +407,11 @@ def branches(full_name):
         <p><a href='{{ url_for("repo", full_name=full_name) }}'>Back</a></p>
         <script>
         document.addEventListener('DOMContentLoaded', function() {
+          const t = document.querySelector('.menu-toggle');
+          const navLinks = document.querySelector('.nav-links');
+          if (t && navLinks) {
+            t.addEventListener('click', () => navLinks.classList.toggle('show'));
+          }
           const rows = Array.from(document.querySelectorAll('.branch-row'));
           const boxes = rows.map(r => r.querySelector('.branch-checkbox'));
           let last = null;
