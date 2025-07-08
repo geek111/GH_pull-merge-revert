@@ -61,6 +61,7 @@ class BulkMerger(tk.Tk):
         self.pr_vars = []
         self.cached_repos = []
         self.config_token = ""
+        self.protected_branches = {}
         self.status_var = tk.StringVar(value="Ready")
         self.progress_var = tk.DoubleVar(value=0)
         self.load_config()
@@ -193,12 +194,18 @@ class BulkMerger(tk.Tk):
                 self.token_var.set(cfg.get("token", ""))
                 self.cached_repos = cfg.get("repos", [])
                 self.config_token = cfg.get("token", "")
+                self.protected_branches = cfg.get("protected_branches", {})
             except Exception:
                 self.cached_repos = []
                 self.config_token = ""
-
+                self.protected_branches = {}
+        
     def save_config(self):
-        cfg = {"token": self.token_var.get(), "repos": self.cached_repos}
+        cfg = {
+            "token": self.token_var.get(),
+            "repos": self.cached_repos,
+            "protected_branches": getattr(self, "protected_branches", {}),
+        }
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(cfg, f)
 
@@ -442,6 +449,7 @@ class BranchManager(tk.Toplevel):
         self.branch_vars = {}
         self.branches = []
         self.branch_statuses = {}
+        self.protected = set(master.protected_branches.get(repo_name, []))
         self.sort_column = "date"
         self.sort_reverse = True
         self.create_widgets()
@@ -536,7 +544,7 @@ class BranchManager(tk.Toplevel):
 
         self.tree = ttk.Treeview(
             frm,
-            columns=("selected", "branch", "date", "status"),
+            columns=("selected", "branch", "date", "status", "protected"),
             show="headings",
             selectmode="extended",
         )
@@ -544,10 +552,12 @@ class BranchManager(tk.Toplevel):
         self.tree.heading("branch", text="Branch", command=lambda: self.sort_tree("branch"))
         self.tree.heading("date", text="Date", command=lambda: self.sort_tree("date"))
         self.tree.heading("status", text="Status", command=lambda: self.sort_tree("status"))
+        self.tree.heading("protected", text="Protected")
         self.tree.column("selected", width=30, anchor="center")
         self.tree.column("branch", width=250)
         self.tree.column("date", width=150)
         self.tree.column("status", width=80, anchor="center")
+        self.tree.column("protected", width=80, anchor="center")
         self.tree.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
         scroll = ttk.Scrollbar(frm, orient="vertical", command=self.tree.yview)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
@@ -558,6 +568,7 @@ class BranchManager(tk.Toplevel):
         self.menu = tk.Menu(self, tearoff=0)
         self.menu.add_command(label="Check highlighted", command=self.check_selected)
         self.menu.add_command(label="Uncheck highlighted", command=self.uncheck_selected)
+        self.menu.add_command(label="Toggle protect", command=self.toggle_protect_selected)
 
         btn_frame = ttk.Frame(frm)
         btn_frame.pack(fill=tk.X, pady=5)
@@ -687,7 +698,13 @@ class BranchManager(tk.Toplevel):
             symbol = "☑" if var.get() else "☐"
             date_str = dt.strftime("%Y-%m-%d")
             status = self.branch_statuses.get(name, "")
-            self.tree.insert("", "end", iid=name, values=(symbol, name, date_str, status))
+            prot_symbol = "★" if name in self.protected else "☆"
+            self.tree.insert(
+                "",
+                "end",
+                iid=name,
+                values=(symbol, name, date_str, status, prot_symbol),
+            )
 
     def check_selected(self):
         for iid in self.tree.selection():
@@ -703,6 +720,21 @@ class BranchManager(tk.Toplevel):
                 var.set(False)
                 self.tree.set(iid, "selected", "☐")
 
+    def toggle_protect_selected(self):
+        changed = False
+        for iid in self.tree.selection():
+            if iid in self.protected:
+                self.protected.remove(iid)
+                self.tree.set(iid, "protected", "☆")
+            else:
+                self.protected.add(iid)
+                self.tree.set(iid, "protected", "★")
+            changed = True
+        if changed:
+            repo_entry = list(self.protected)
+            self.master.protected_branches[self.repo_name] = repo_entry
+            self.master.save_config()
+
     def delete_checked(self):
         confirm = messagebox.askyesno("Confirm", "Delete checked branches?")
         if not confirm:
@@ -710,7 +742,11 @@ class BranchManager(tk.Toplevel):
         self.set_status("Deleting branches...")
         g = Github(self.token, per_page=100)
         repo = g.get_repo(self.repo_name)
-        to_delete = [name for name, var in self.branch_vars.items() if var.get()]
+        to_delete = [
+            name
+            for name, var in self.branch_vars.items()
+            if var.get() and name not in self.protected
+        ]
         for name in to_delete:
             try:
                 ref = repo.get_git_ref(f"heads/{name}")

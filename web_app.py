@@ -140,14 +140,18 @@ def load_config() -> dict:
     return {}
 
 
+def save_config(cfg: dict) -> None:
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(cfg, f)
+
+
 def save_token(token: str) -> None:
     cfg = load_config()
     tokens = cfg.get("tokens", [])
     if token not in tokens:
         tokens.append(token)
     cfg["tokens"] = tokens
-    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-        json.dump(cfg, f)
+    save_config(cfg)
 
 
 def get_local_repo(repo_url: str) -> str:
@@ -440,15 +444,30 @@ def branches(full_name):
         return redirect(url_for("index"))
     g = Github(token, per_page=100)
     repo = g.get_repo(full_name)
+    cfg = load_config()
+    protected = cfg.get("protected_branches", {}).get(full_name, [])
     if request.method == "POST":
-        names = request.form.getlist("branch")
-        for name in names:
-            try:
-                ref = repo.get_git_ref(f"heads/{name}")
-                ref.delete()
-            except GithubException as e:
-                flash(f"Failed to delete {name}: {e.data}")
-        flash("Action completed")
+        if "toggle_protect" in request.form:
+            name = request.form["toggle_protect"]
+            current = set(protected)
+            if name in current:
+                current.remove(name)
+            else:
+                current.add(name)
+            cfg.setdefault("protected_branches", {})[full_name] = list(current)
+            save_config(cfg)
+            protected = list(current)
+            flash("Protection updated")
+        else:
+            names = [n for n in request.form.getlist("branch") if n not in protected]
+            for name in names:
+                try:
+                    ref = repo.get_git_ref(f"heads/{name}")
+                    ref.delete()
+                except GithubException as e:
+                    flash(f"Failed to delete {name}: {e.data}")
+            if names:
+                flash("Action completed")
     branches = list(repo.get_branches())
     return render_template_string(
         NAV_TEMPLATE + """
@@ -461,6 +480,7 @@ def branches(full_name):
               <th>Name</th>
               <th id='date-header' data-order='asc'>Date</th>
               <th>Branch</th>
+              <th>Protected</th>
             </tr>
           </thead>
           <tbody>
@@ -470,6 +490,11 @@ def branches(full_name):
               <td>{{ br.name }}</td>
               <td data-sort='{{ br.commit.commit.author.date.isoformat() }}'>{{ br.commit.commit.author.date.strftime('%Y-%m-%d %H:%M') }}</td>
               <td><a href='https://github.com/{{ full_name }}/tree/{{ br.name }}' target='_blank'>{{ br.name }}</a></td>
+              <td>
+                <form method='post' style='display:inline'>
+                  <button name='toggle_protect' value='{{ br.name }}' style='background:none;border:none'>{{ '★' if br.name in protected else '☆' }}</button>
+                </form>
+              </td>
             </tr>
           {% endfor %}
           </tbody>
@@ -536,6 +561,7 @@ def branches(full_name):
         """,
         full_name=full_name,
         branches=branches,
+        protected=protected,
         repo_name=full_name,
     )
 
