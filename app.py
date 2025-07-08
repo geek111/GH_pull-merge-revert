@@ -442,6 +442,7 @@ class BranchManager(tk.Toplevel):
         self.branch_vars = {}
         self.branches = []
         self.branch_statuses = {}
+        self.protected_branches = {}
         self.sort_column = "date"
         self.sort_reverse = True
         self.create_widgets()
@@ -480,6 +481,7 @@ class BranchManager(tk.Toplevel):
         self.branches = []
         self.branch_statuses = {}
         self.branch_vars = {}
+        self.protected_branches = {}
 
     def _sort_branches(self):
         """Sort branches based on the current sort settings."""
@@ -502,19 +504,21 @@ class BranchManager(tk.Toplevel):
         self._sort_branches()
         self.apply_filters()
 
-    def _add_branch(self, name, dt, status):
+    def _add_branch(self, name, dt, status, protected=False):
         """Add a branch entry and refresh the view respecting filters."""
         self.branches.append((name, dt))
         self.branch_statuses[name] = status
+        self.protected_branches[name] = protected
         self._sort_branches()
         self.apply_filters()
 
-    def _update_branch_status(self, name, status):
-        """Update stored status for a branch and refresh filters."""
+    def _update_branch_info(self, name, status, protected):
+        """Update stored status and protection state for a branch."""
         if self.closed:
             return
         if name in self.branch_statuses:
             self.branch_statuses[name] = status
+            self.protected_branches[name] = protected
             if self.sort_column == "status":
                 self._sort_branches()
             self.apply_filters()
@@ -552,12 +556,16 @@ class BranchManager(tk.Toplevel):
         scroll = ttk.Scrollbar(frm, orient="vertical", command=self.tree.yview)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.tree.configure(yscrollcommand=scroll.set)
+        self.tree.tag_configure("protected", background="#ffeeba")
 
         self.tree.bind("<Button-3>", self.show_context_menu)
 
         self.menu = tk.Menu(self, tearoff=0)
         self.menu.add_command(label="Check highlighted", command=self.check_selected)
         self.menu.add_command(label="Uncheck highlighted", command=self.uncheck_selected)
+        self.menu.add_separator()
+        self.menu.add_command(label="Protect highlighted", command=self.protect_selected)
+        self.menu.add_command(label="Unprotect highlighted", command=self.unprotect_selected)
 
         btn_frame = ttk.Frame(frm)
         btn_frame.pack(fill=tk.X, pady=5)
@@ -609,7 +617,7 @@ class BranchManager(tk.Toplevel):
             if cached:
                 branches = [(name, datetime.datetime.fromisoformat(dt)) for name, dt in cached]
                 for name, dt in branches:
-                    self.after(0, lambda n=name, d=dt: self._add_branch(n, d, "loading"))
+                    self.after(0, lambda n=name, d=dt: self._add_branch(n, d, "loading", False))
             else:
                 g = Github(self.token, per_page=100)
                 repo = g.get_repo(self.repo_name)
@@ -619,7 +627,7 @@ class BranchManager(tk.Toplevel):
                 for idx, br in enumerate(branches_list):
                     dt = br.commit.commit.author.date
                     branches.append((br.name, dt))
-                    self.after(0, lambda n=br.name, d=dt: self._add_branch(n, d, "loading"))
+                    self.after(0, lambda n=br.name, d=dt: self._add_branch(n, d, "loading", False))
                     if total:
                         progress = ((idx + 1) / (total * 2)) * 100
                         self.after(0, lambda p=progress: self.set_progress(p))
@@ -633,25 +641,27 @@ class BranchManager(tk.Toplevel):
 
             def fetch_status(branch_name):
                 try:
+                    br = repo.get_branch(branch_name)
+                    protected = br.protected
                     prs = repo.get_pulls(state="all", head=f"{owner}:{branch_name}")
                     status = "no PR"
                     for pr in prs:
                         if pr.state == "open":
-                            return "open"
+                            return "open", protected
                         if pr.merged:
-                            return "merged"
-                        return "closed"
-                    return status
+                            return "merged", protected
+                        return "closed", protected
+                    return status, protected
                 except GithubException:
-                    return "error"
+                    return "error", False
 
             completed = 0
             with ThreadPoolExecutor(max_workers=5) as executor:
                 futures = {executor.submit(fetch_status, name): name for name, _ in branches}
                 for future in as_completed(futures):
                     name = futures[future]
-                    status = future.result()
-                    self.after(0, lambda n=name, s=status: self._update_branch_status(n, s))
+                    status, protected = future.result()
+                    self.after(0, lambda n=name, s=status, p=protected: self._update_branch_info(n, s, p))
                     completed += 1
                     progress = ((total + completed) / (total * 2)) * 100 if total else 100
                     self.after(0, lambda p=progress: self.set_progress(p))
@@ -687,7 +697,8 @@ class BranchManager(tk.Toplevel):
             symbol = "☑" if var.get() else "☐"
             date_str = dt.strftime("%Y-%m-%d")
             status = self.branch_statuses.get(name, "")
-            self.tree.insert("", "end", iid=name, values=(symbol, name, date_str, status))
+            tags = ("protected",) if self.protected_branches.get(name) else ()
+            self.tree.insert("", "end", iid=name, values=(symbol, name, date_str, status), tags=tags)
 
     def check_selected(self):
         for iid in self.tree.selection():
@@ -726,6 +737,30 @@ class BranchManager(tk.Toplevel):
         save_branch_cache(branch_cache)
         self.load_branches()
         self.set_status("Ready")
+
+    def _set_protection(self, protect: bool):
+        g = Github(self.token, per_page=100)
+        repo = g.get_repo(self.repo_name)
+        for name in self.tree.selection():
+            try:
+                br = repo.get_branch(name)
+                if protect:
+                    br.edit_protection(enforce_admins=True)
+                    self.protected_branches[name] = True
+                else:
+                    br.remove_protection()
+                    self.protected_branches[name] = False
+            except GithubException as e:
+                messagebox.showerror("Error", f"Failed to update {name}: {e.data}")
+        self.apply_filters()
+
+    def protect_selected(self):
+        self.set_status("Protecting branches...")
+        self.master.run_async(lambda: (self._set_protection(True), self.set_status("Ready")))
+
+    def unprotect_selected(self):
+        self.set_status("Unprotecting branches...")
+        self.master.run_async(lambda: (self._set_protection(False), self.set_status("Ready")))
 
 
 class PullRequestList(tk.Toplevel):

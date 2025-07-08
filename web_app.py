@@ -216,7 +216,7 @@ def api_pulls(full_name: str) -> dict:
                 "number": pr.number,
                 "title": pr.title,
                 "html_url": pr.html_url,
-                "created_at": pr.created_at.isoformat(),
+                "created_at": str(pr.created_at),
             }
             for pr in pulls
         ]
@@ -442,16 +442,23 @@ def branches(full_name):
     repo = g.get_repo(full_name)
     if request.method == "POST":
         names = request.form.getlist("branch")
+        action = request.form.get("action") or "delete"
         for name in names:
             try:
-                ref = repo.get_git_ref(f"heads/{name}")
-                ref.delete()
+                if action == "delete":
+                    ref = repo.get_git_ref(f"heads/{name}")
+                    ref.delete()
+                elif action == "protect":
+                    repo.get_branch(name).edit_protection(enforce_admins=True)
+                elif action == "unprotect":
+                    repo.get_branch(name).remove_protection()
             except GithubException as e:
-                flash(f"Failed to delete {name}: {e.data}")
+                flash(f"Failed to update {name}: {e.data}")
         flash("Action completed")
     branches = list(repo.get_branches())
     return render_template_string(
         NAV_TEMPLATE + """
+        <style>.protected{background-color:#ffeeba;}</style>
         <h2>Branches: {{full_name}}</h2>
         <form method='post'>
         <table id='branch-table'>
@@ -465,7 +472,7 @@ def branches(full_name):
           </thead>
           <tbody>
           {% for br in branches %}
-            <tr class='branch-row'>
+            <tr class='branch-row{% if br.protected %} protected{% endif %}'>
               <td><input type='checkbox' class='branch-checkbox' name='branch' value='{{ br.name }}'></td>
               <td>{{ br.name }}</td>
               <td data-sort='{{ br.commit.commit.author.date.isoformat() }}'>{{ br.commit.commit.author.date.strftime('%Y-%m-%d %H:%M') }}</td>
@@ -474,7 +481,9 @@ def branches(full_name):
           {% endfor %}
           </tbody>
         </table>
-        <button type='submit'>Delete Selected</button>
+        <button type='submit' name='action' value='delete'>Delete Selected</button>
+        <button type='submit' name='action' value='protect'>Protect Selected</button>
+        <button type='submit' name='action' value='unprotect'>Unprotect Selected</button>
         </form>
         <p><a href='{{ url_for("repo", full_name=full_name) }}'>Back</a></p>
         <script>
