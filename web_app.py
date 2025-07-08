@@ -9,6 +9,7 @@ from flask import (
     url_for,
     session,
     flash,
+    Response,
 )
 from github import Github
 from github.GithubException import GithubException
@@ -234,6 +235,35 @@ def api_repos() -> dict:
     }
 
 
+@app.route("/stream/repos")
+def stream_repos():
+    token = session.get("token")
+    if not token:
+        def error_gen():
+            yield "event: error\ndata: unauthorized\n\n"
+        return Response(error_gen(), mimetype="text/event-stream")
+
+    def generate():
+        g = Github(token, per_page=100)
+        repos = g.get_user().get_repos()
+        total = getattr(repos, "totalCount", None)
+        count = 0
+        for r in repos:
+            data = {
+                "full_name": r.full_name,
+                "html_url": r.html_url,
+                "url": url_for("repo", full_name=r.full_name),
+            }
+            yield f"event: repo\ndata: {json.dumps(data)}\n\n"
+            count += 1
+            if total:
+                pct = int((count / total) * 100)
+                yield f"event: progress\ndata: {pct}\n\n"
+        yield "event: progress\ndata: 100\n\n"
+
+    return Response(generate(), mimetype="text/event-stream")
+
+
 @app.route("/api/pulls/<path:full_name>")
 def api_pulls(full_name: str) -> dict:
     token = session.get("token")
@@ -259,6 +289,43 @@ def api_pulls(full_name: str) -> dict:
             for pr in pulls
         ]
     }
+
+
+@app.route("/stream/pulls/<path:full_name>")
+def stream_pulls(full_name: str):
+    token = session.get("token")
+    if not token:
+        def error_gen():
+            yield "event: error\ndata: unauthorized\n\n"
+        return Response(error_gen(), mimetype="text/event-stream")
+
+    def generate():
+        g = Github(token, per_page=100)
+        repo = g.get_repo(full_name)
+        pulls = repo.get_pulls(state="open", sort="created")
+        total = getattr(pulls, "totalCount", None)
+        count = 0
+        for pr in pulls:
+            data = {
+                "number": pr.number,
+                "title": pr.title,
+                "html_url": pr.html_url,
+                "created_at": (
+                    pr.created_at.isoformat()
+                    if hasattr(pr, "created_at")
+                    and not isinstance(pr.created_at, Mock)
+                    and hasattr(pr.created_at, "isoformat")
+                    else str(getattr(pr, "created_at", ""))
+                ),
+            }
+            yield f"event: pull\ndata: {json.dumps(data)}\n\n"
+            count += 1
+            if total:
+                pct = int((count / total) * 100)
+                yield f"event: progress\ndata: {pct}\n\n"
+        yield "event: progress\ndata: 100\n\n"
+
+    return Response(generate(), mimetype="text/event-stream")
 
 
 @app.route("/api/branches/<path:full_name>")
@@ -290,6 +357,47 @@ def api_branches(full_name: str) -> dict:
             }
         )
     return {"branches": data}
+
+
+@app.route("/stream/branches/<path:full_name>")
+def stream_branches(full_name: str):
+    token = session.get("token")
+    if not token:
+        def error_gen():
+            yield "event: error\ndata: unauthorized\n\n"
+        return Response(error_gen(), mimetype="text/event-stream")
+
+    def generate():
+        g = Github(token, per_page=100)
+        repo = g.get_repo(full_name)
+        cfg = load_config()
+        protected = cfg.get("protected_branches", {}).get(full_name, [])
+        branches = repo.get_branches()
+        total = getattr(branches, "totalCount", None)
+        count = 0
+        for br in branches:
+            date = None
+            if hasattr(br, "commit") and hasattr(br.commit, "commit"):
+                author = getattr(br.commit.commit, "author", None)
+                if author and hasattr(author, "date") and not isinstance(author.date, Mock):
+                    try:
+                        date = author.date.isoformat()
+                    except Exception:
+                        date = str(author.date)
+            data = {
+                "name": br.name,
+                "date": date or "",
+                "html_url": f"https://github.com/{full_name}/tree/{br.name}",
+                "protected": br.name in protected,
+            }
+            yield f"event: branch\ndata: {json.dumps(data)}\n\n"
+            count += 1
+            if total:
+                pct = int((count / total) * 100)
+                yield f"event: progress\ndata: {pct}\n\n"
+        yield "event: progress\ndata: 100\n\n"
+
+    return Response(generate(), mimetype="text/event-stream")
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -342,23 +450,25 @@ def repos():
         <h2>Select Repository</h2>
         <ul id='repo-list'></ul>
         <script>
+        let repoSrc;
         function loadRepos() {
+          if (repoSrc) repoSrc.close();
           updateProgress(0, 'Loading repositories');
-          fetch('{{ url_for('api_repos') }}')
-            .then(r => r.json())
-            .then(data => {
-              const list = document.getElementById('repo-list');
-              list.innerHTML = '';
-              data.repos.forEach((repo, idx) => {
-                const li = document.createElement('li');
-                li.innerHTML = `<a href='${repo.url}'>${repo.full_name}</a> - <a href='${repo.html_url}' target='_blank'>GitHub</a>`;
-                list.appendChild(li);
-                const pct = Math.round(((idx + 1) / data.repos.length) * 100);
-                updateProgress(pct, 'Loading repositories');
-              });
-              updateProgress(100, 'Ready');
-            })
-            .catch(() => { updateProgress(100, 'Error'); });
+          const list = document.getElementById('repo-list');
+          list.innerHTML = '';
+          repoSrc = new EventSource('{{ url_for('stream_repos') }}');
+          repoSrc.addEventListener('repo', e => {
+            const repo = JSON.parse(e.data);
+            const li = document.createElement('li');
+            li.innerHTML = `<a href='${repo.url}'>${repo.full_name}</a> - <a href='${repo.html_url}' target='_blank'>GitHub</a>`;
+            list.appendChild(li);
+          });
+          repoSrc.addEventListener('progress', e => {
+            const pct = parseInt(e.data);
+            updateProgress(pct, 'Loading repositories');
+            if (pct >= 100) repoSrc.close();
+          });
+          repoSrc.onerror = () => { repoSrc.close(); updateProgress(100, 'Error'); };
         }
         document.addEventListener('DOMContentLoaded', function() {
           loadRepos();
@@ -477,28 +587,32 @@ def repo(full_name):
           });
         }
 
+        let prSrc;
         function loadPRs() {
+          if (prSrc) prSrc.close();
           updateProgress(0, 'Loading pull requests');
-          fetch('{{ url_for('api_pulls', full_name=full_name) }}')
-            .then(r => r.json())
-            .then(data => {
-              const tbody = document.querySelector('#pr-table tbody');
-              tbody.innerHTML = '';
-              data.pulls.forEach((pr, idx) => {
-                const tr = document.createElement('tr');
-                tr.className = 'pr-row';
-                tr.innerHTML = `<td><input type='checkbox' class='pr-checkbox' name='pr' value='${pr.number}'></td>` +
-                               `<td>${pr.title}</td>` +
-                               `<td data-sort='${pr.created_at}'>${pr.created_at.slice(0,16).replace('T',' ')}</td>` +
-                               `<td><a href='${pr.html_url}' target='_blank'>#${pr.number}</a></td>`;
-                tbody.appendChild(tr);
-                const pct = Math.round(((idx + 1) / data.pulls.length) * 100);
-                updateProgress(pct, 'Loading pull requests');
-              });
+          const tbody = document.querySelector('#pr-table tbody');
+          tbody.innerHTML = '';
+          prSrc = new EventSource('{{ url_for('stream_pulls', full_name=full_name) }}');
+          prSrc.addEventListener('pull', e => {
+            const pr = JSON.parse(e.data);
+            const tr = document.createElement('tr');
+            tr.className = 'pr-row';
+            tr.innerHTML = `<td><input type='checkbox' class='pr-checkbox' name='pr' value='${pr.number}'></td>` +
+                           `<td>${pr.title}</td>` +
+                           `<td data-sort='${pr.created_at}'>${pr.created_at.slice(0,16).replace('T',' ')}</td>` +
+                           `<td><a href='${pr.html_url}' target='_blank'>#${pr.number}</a></td>`;
+            tbody.appendChild(tr);
+          });
+          prSrc.addEventListener('progress', e => {
+            const pct = parseInt(e.data);
+            updateProgress(pct, 'Loading pull requests');
+            if (pct >= 100) {
+              prSrc.close();
               initPRInteractions();
-              updateProgress(100, 'Ready');
-            })
-            .catch(() => { updateProgress(100, 'Error'); });
+            }
+          });
+          prSrc.onerror = () => { prSrc.close(); updateProgress(100, 'Error'); };
         }
         document.addEventListener('DOMContentLoaded', function() {
           loadPRs();
@@ -617,29 +731,33 @@ def branches(full_name):
           });
         }
 
+        let branchSrc;
         function loadBranches() {
+          if (branchSrc) branchSrc.close();
           updateProgress(0, 'Loading branches');
-          fetch('{{ url_for('api_branches', full_name=full_name) }}')
-            .then(r => r.json())
-            .then(data => {
-              const tbody = document.querySelector('#branch-table tbody');
-              tbody.innerHTML = '';
-              data.branches.forEach((br, idx) => {
-                const tr = document.createElement('tr');
-                tr.className = 'branch-row';
-                tr.innerHTML = `<td><input type='checkbox' class='branch-checkbox' name='branch' value='${br.name}'></td>` +
-                               `<td>${br.name}</td>` +
-                               `<td data-sort='${br.date}'>${br.date.slice(0,16).replace('T',' ')}</td>` +
-                               `<td><a href='${br.html_url}' target='_blank'>${br.name}</a></td>` +
-                               `<td><form method='post' style='display:inline'><button name='toggle_protect' value='${br.name}' style='background:none;border:none'>${br.protected ? '★' : '☆'}</button></form></td>`;
-                tbody.appendChild(tr);
-                const pct = Math.round(((idx + 1) / data.branches.length) * 100);
-                updateProgress(pct, 'Loading branches');
-              });
+          const tbody = document.querySelector('#branch-table tbody');
+          tbody.innerHTML = '';
+          branchSrc = new EventSource('{{ url_for('stream_branches', full_name=full_name) }}');
+          branchSrc.addEventListener('branch', e => {
+            const br = JSON.parse(e.data);
+            const tr = document.createElement('tr');
+            tr.className = 'branch-row';
+            tr.innerHTML = `<td><input type='checkbox' class='branch-checkbox' name='branch' value='${br.name}'></td>` +
+                           `<td>${br.name}</td>` +
+                           `<td data-sort='${br.date}'>${br.date.slice(0,16).replace('T',' ')}</td>` +
+                           `<td><a href='${br.html_url}' target='_blank'>${br.name}</a></td>` +
+                           `<td><form method='post' style='display:inline'><button name='toggle_protect' value='${br.name}' style='background:none;border:none'>${br.protected ? '★' : '☆'}</button></form></td>`;
+            tbody.appendChild(tr);
+          });
+          branchSrc.addEventListener('progress', e => {
+            const pct = parseInt(e.data);
+            updateProgress(pct, 'Loading branches');
+            if (pct >= 100) {
+              branchSrc.close();
               setupBranchRows();
-              updateProgress(100, 'Ready');
-            })
-            .catch(() => { updateProgress(100, 'Error'); });
+            }
+          });
+          branchSrc.onerror = () => { branchSrc.close(); updateProgress(100, 'Error'); };
         }
 
         document.addEventListener('DOMContentLoaded', function() {
