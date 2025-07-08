@@ -329,7 +329,8 @@ class BulkMerger(tk.Tk):
         repo = g.get_repo(repo_name)
         selected = [(var, pr) for var, pr in zip(self.pr_vars, self.prs) if var.get()]
         total = len(selected)
-        for idx, (_, pr) in enumerate(selected):
+
+        def merge_pr(pr):
             try:
                 pr.merge()
                 self.log(f"Merged PR #{pr.number}")
@@ -347,8 +348,16 @@ class BulkMerger(tk.Tk):
                         self.log(f"Failed to resolve conflicts for PR #{pr.number}: {detail}")
                 else:
                     self.log(f"Failed to merge PR #{pr.number}: {e.data}")
-            progress = ((idx + 1) / total) * 100 if total else 100
-            self.set_progress(progress)
+
+        completed = 0
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(merge_pr, pr) for _, pr in selected]
+            for future in as_completed(futures):
+                future.result()
+                completed += 1
+                progress = (completed / total) * 100 if total else 100
+                self.set_progress(progress)
+
         self.set_status("Ready")
 
     def revert_selected(self):
@@ -414,14 +423,23 @@ class BulkMerger(tk.Tk):
         repo = g.get_repo(repo_name)
         selected = [pr for var, pr in zip(self.pr_vars, self.prs) if var.get() and pr.state != "closed"]
         total = len(selected)
-        for idx, pr in enumerate(selected):
+
+        def close_pr(pr):
             try:
                 pr.edit(state="closed")
                 self.log(f"Closed PR #{pr.number}")
             except GithubException as e:
                 self.log(f"Failed to close PR #{pr.number}: {e.data}")
-            progress = ((idx + 1) / total) * 100 if total else 100
-            self.set_progress(progress)
+
+        completed = 0
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(close_pr, pr) for pr in selected]
+            for future in as_completed(futures):
+                future.result()
+                completed += 1
+                progress = (completed / total) * 100 if total else 100
+                self.set_progress(progress)
+
         self.set_status("Ready")
 
     def manage_branches(self):
