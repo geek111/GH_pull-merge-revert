@@ -261,6 +261,37 @@ def api_pulls(full_name: str) -> dict:
     }
 
 
+@app.route("/api/branches/<path:full_name>")
+def api_branches(full_name: str) -> dict:
+    token = session.get("token")
+    if not token:
+        return {"error": "unauthorized"}, 401
+    g = Github(token, per_page=100)
+    repo = g.get_repo(full_name)
+    cfg = load_config()
+    protected = cfg.get("protected_branches", {}).get(full_name, [])
+    branches = repo.get_branches()
+    data = []
+    for br in branches:
+        date = None
+        if hasattr(br, "commit") and hasattr(br.commit, "commit"):
+            author = getattr(br.commit.commit, "author", None)
+            if author and hasattr(author, "date") and not isinstance(author.date, Mock):
+                try:
+                    date = author.date.isoformat()
+                except Exception:
+                    date = str(author.date)
+        data.append(
+            {
+                "name": br.name,
+                "date": date or "",
+                "html_url": f"https://github.com/{full_name}/tree/{br.name}",
+                "protected": br.name in protected,
+            }
+        )
+    return {"branches": data}
+
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     cfg = load_config()
@@ -311,12 +342,13 @@ def repos():
         <h2>Select Repository</h2>
         <ul id='repo-list'></ul>
         <script>
-        document.addEventListener('DOMContentLoaded', function() {
+        function loadRepos() {
           updateProgress(0, 'Loading repositories');
           fetch('{{ url_for('api_repos') }}')
             .then(r => r.json())
             .then(data => {
               const list = document.getElementById('repo-list');
+              list.innerHTML = '';
               data.repos.forEach((repo, idx) => {
                 const li = document.createElement('li');
                 li.innerHTML = `<a href='${repo.url}'>${repo.full_name}</a> - <a href='${repo.html_url}' target='_blank'>GitHub</a>`;
@@ -327,6 +359,10 @@ def repos():
               updateProgress(100, 'Ready');
             })
             .catch(() => { updateProgress(100, 'Error'); });
+        }
+        document.addEventListener('DOMContentLoaded', function() {
+          loadRepos();
+          setInterval(loadRepos, 30000);
         });
         </script>
         """,
@@ -441,7 +477,7 @@ def repo(full_name):
           });
         }
 
-        document.addEventListener('DOMContentLoaded', function() {
+        function loadPRs() {
           updateProgress(0, 'Loading pull requests');
           fetch('{{ url_for('api_pulls', full_name=full_name) }}')
             .then(r => r.json())
@@ -463,6 +499,10 @@ def repo(full_name):
               updateProgress(100, 'Ready');
             })
             .catch(() => { updateProgress(100, 'Error'); });
+        }
+        document.addEventListener('DOMContentLoaded', function() {
+          loadPRs();
+          setInterval(loadPRs, 30000);
         });
         </script>
         """,
@@ -502,7 +542,6 @@ def branches(full_name):
                     flash(f"Failed to delete {name}: {e.data}")
             if names:
                 flash("Action completed")
-    branches = list(repo.get_branches())
     return render_template_string(
         NAV_TEMPLATE + """
         <h2>Branches: {{full_name}}</h2>
@@ -517,27 +556,13 @@ def branches(full_name):
               <th>Protected</th>
             </tr>
           </thead>
-          <tbody>
-          {% for br in branches %}
-            <tr class='branch-row'>
-              <td><input type='checkbox' class='branch-checkbox' name='branch' value='{{ br.name }}'></td>
-              <td>{{ br.name }}</td>
-              <td data-sort='{{ br.commit.commit.author.date.isoformat() }}'>{{ br.commit.commit.author.date.strftime('%Y-%m-%d %H:%M') }}</td>
-              <td><a href='https://github.com/{{ full_name }}/tree/{{ br.name }}' target='_blank'>{{ br.name }}</a></td>
-              <td>
-                <form method='post' style='display:inline'>
-                  <button name='toggle_protect' value='{{ br.name }}' style='background:none;border:none'>{{ '★' if br.name in protected else '☆' }}</button>
-                </form>
-              </td>
-            </tr>
-          {% endfor %}
-          </tbody>
+          <tbody></tbody>
         </table>
         <button type='submit'>Delete Selected</button>
         </form>
         <p><a href='{{ url_for("repo", full_name=full_name) }}'>Back</a></p>
         <script>
-        document.addEventListener('DOMContentLoaded', function() {
+        function setupBranchRows() {
           const rows = Array.from(document.querySelectorAll('.branch-row'));
           const boxes = rows.map(r => r.querySelector('.branch-checkbox'));
           let last = null;
@@ -590,11 +615,40 @@ def branches(full_name):
             newRows.forEach(r => tbody.appendChild(r));
             dateHeader.dataset.order = asc ? 'asc' : 'desc';
           });
+        }
+
+        function loadBranches() {
+          updateProgress(0, 'Loading branches');
+          fetch('{{ url_for('api_branches', full_name=full_name) }}')
+            .then(r => r.json())
+            .then(data => {
+              const tbody = document.querySelector('#branch-table tbody');
+              tbody.innerHTML = '';
+              data.branches.forEach((br, idx) => {
+                const tr = document.createElement('tr');
+                tr.className = 'branch-row';
+                tr.innerHTML = `<td><input type='checkbox' class='branch-checkbox' name='branch' value='${br.name}'></td>` +
+                               `<td>${br.name}</td>` +
+                               `<td data-sort='${br.date}'>${br.date.slice(0,16).replace('T',' ')}</td>` +
+                               `<td><a href='${br.html_url}' target='_blank'>${br.name}</a></td>` +
+                               `<td><form method='post' style='display:inline'><button name='toggle_protect' value='${br.name}' style='background:none;border:none'>${br.protected ? '★' : '☆'}</button></form></td>`;
+                tbody.appendChild(tr);
+                const pct = Math.round(((idx + 1) / data.branches.length) * 100);
+                updateProgress(pct, 'Loading branches');
+              });
+              setupBranchRows();
+              updateProgress(100, 'Ready');
+            })
+            .catch(() => { updateProgress(100, 'Error'); });
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+          loadBranches();
+          setInterval(loadBranches, 30000);
         });
         </script>
         """,
         full_name=full_name,
-        branches=branches,
         protected=protected,
         repo_name=full_name,
     )
