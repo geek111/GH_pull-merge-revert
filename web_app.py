@@ -344,20 +344,21 @@ def repos():
         <h2>Select Repository</h2>
         <ul id='repo-list'></ul>
         <script>
-        function loadRepos() {
+        async function loadRepos() {
           updateProgress(0, 'Loading repositories');
           fetch('{{ url_for('api_repos') }}')
             .then(r => r.json())
-            .then(data => {
+            .then(async data => {
               const list = document.getElementById('repo-list');
               list.innerHTML = '';
-              data.repos.forEach((repo, idx) => {
+              for (const [idx, repo] of data.repos.entries()) {
                 const li = document.createElement('li');
                 li.innerHTML = `<a href='${repo.url}'>${repo.full_name}</a> - <a href='${repo.html_url}' target='_blank'>GitHub</a>`;
                 list.appendChild(li);
                 const pct = Math.round(((idx + 1) / data.repos.length) * 100);
                 updateProgress(pct, 'Loading repositories');
-              });
+                await new Promise(requestAnimationFrame);
+              }
               updateProgress(100, 'Ready');
             })
             .catch(() => { updateProgress(100, 'Error'); });
@@ -479,14 +480,14 @@ def repo(full_name):
           });
         }
 
-        function loadPRs() {
+        async function loadPRs() {
           updateProgress(0, 'Loading pull requests');
           fetch('{{ url_for('api_pulls', full_name=full_name) }}')
             .then(r => r.json())
-            .then(data => {
+            .then(async data => {
               const tbody = document.querySelector('#pr-table tbody');
               tbody.innerHTML = '';
-              data.pulls.forEach((pr, idx) => {
+              for (const [idx, pr] of data.pulls.entries()) {
                 const tr = document.createElement('tr');
                 tr.className = 'pr-row';
                 tr.innerHTML = `<td><input type='checkbox' class='pr-checkbox' name='pr' value='${pr.number}'></td>` +
@@ -496,7 +497,8 @@ def repo(full_name):
                 tbody.appendChild(tr);
                 const pct = Math.round(((idx + 1) / data.pulls.length) * 100);
                 updateProgress(pct, 'Loading pull requests');
-              });
+                await new Promise(requestAnimationFrame);
+              }
               initPRInteractions();
               updateProgress(100, 'Ready');
             })
@@ -619,14 +621,14 @@ def branches(full_name):
           });
         }
 
-        function loadBranches() {
+        async function loadBranches() {
           updateProgress(0, 'Loading branches');
           fetch('{{ url_for('api_branches', full_name=full_name) }}')
             .then(r => r.json())
-            .then(data => {
+            .then(async data => {
               const tbody = document.querySelector('#branch-table tbody');
               tbody.innerHTML = '';
-              data.branches.forEach((br, idx) => {
+              for (const [idx, br] of data.branches.entries()) {
                 const tr = document.createElement('tr');
                 tr.className = 'branch-row';
                 tr.innerHTML = `<td><input type='checkbox' class='branch-checkbox' name='branch' value='${br.name}'></td>` +
@@ -637,7 +639,8 @@ def branches(full_name):
                 tbody.appendChild(tr);
                 const pct = Math.round(((idx + 1) / data.branches.length) * 100);
                 updateProgress(pct, 'Loading branches');
-              });
+                await new Promise(requestAnimationFrame);
+              }
               setupBranchRows();
               updateProgress(100, 'Ready');
             })
