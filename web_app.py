@@ -9,6 +9,7 @@ from flask import (
     url_for,
     session,
     flash,
+    Response,
 )
 from github import Github
 from github.GithubException import GithubException
@@ -17,7 +18,7 @@ from unittest.mock import Mock
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
 
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
@@ -261,6 +262,39 @@ def api_pulls(full_name: str) -> dict:
     }
 
 
+@app.route("/api/pulls_stream/<path:full_name>")
+def api_pulls_stream(full_name: str):
+    token = session.get("token")
+    if not token:
+        return {"error": "unauthorized"}, 401
+
+    def generate():
+        g = Github(token, per_page=100)
+        repo = g.get_repo(full_name)
+        pulls = repo.get_pulls(state="open", sort="created")
+        total = getattr(pulls, "totalCount", None)
+        for idx, pr in enumerate(pulls):
+            pr_data = {
+                "number": pr.number,
+                "title": pr.title,
+                "html_url": pr.html_url,
+                "created_at": (
+                    pr.created_at.isoformat()
+                    if hasattr(pr, "created_at")
+                    and not isinstance(pr.created_at, Mock)
+                    and hasattr(pr.created_at, "isoformat")
+                    else str(getattr(pr, "created_at", ""))
+                ),
+            }
+            yield f"data: {json.dumps({'type': 'pr', 'pr': pr_data})}\n\n"
+            if total:
+                pct = ((idx + 1) / total) * 100
+                yield f"data: {json.dumps({'type': 'progress', 'pct': pct})}\n\n"
+        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
+    return Response(generate(), mimetype="text/event-stream")
+
+
 @app.route("/api/branches/<path:full_name>")
 def api_branches(full_name: str) -> dict:
     token = session.get("token")
@@ -479,12 +513,14 @@ def repo(full_name):
 
         function loadPRs() {
           updateProgress(0, 'Loading pull requests');
-          fetch('{{ url_for('api_pulls', full_name=full_name) }}')
-            .then(r => r.json())
-            .then(data => {
-              const tbody = document.querySelector('#pr-table tbody');
-              tbody.innerHTML = '';
-              data.pulls.forEach((pr, idx) => {
+          const tbody = document.querySelector('#pr-table tbody');
+          tbody.innerHTML = '';
+          if (window.EventSource) {
+            const source = new EventSource('{{ url_for('api_pulls_stream', full_name=full_name) }}');
+            source.onmessage = function(e) {
+              const data = JSON.parse(e.data);
+              if (data.type === 'pr') {
+                const pr = data.pr;
                 const tr = document.createElement('tr');
                 tr.className = 'pr-row';
                 tr.innerHTML = `<td><input type='checkbox' class='pr-checkbox' name='pr' value='${pr.number}'></td>` +
@@ -492,13 +528,38 @@ def repo(full_name):
                                `<td data-sort='${pr.created_at}'>${pr.created_at.slice(0,16).replace('T',' ')}</td>` +
                                `<td><a href='${pr.html_url}' target='_blank'>#${pr.number}</a></td>`;
                 tbody.appendChild(tr);
-                const pct = Math.round(((idx + 1) / data.pulls.length) * 100);
-                updateProgress(pct, 'Loading pull requests');
-              });
-              initPRInteractions();
-              updateProgress(100, 'Ready');
-            })
-            .catch(() => { updateProgress(100, 'Error'); });
+              } else if (data.type === 'progress') {
+                updateProgress(Math.round(data.pct), 'Loading pull requests');
+              } else if (data.type === 'done') {
+                initPRInteractions();
+                updateProgress(100, 'Ready');
+                source.close();
+              }
+            };
+            source.onerror = function() {
+              updateProgress(100, 'Error');
+              source.close();
+            };
+          } else {
+            fetch('{{ url_for('api_pulls', full_name=full_name) }}')
+              .then(r => r.json())
+              .then(data => {
+                data.pulls.forEach((pr, idx) => {
+                  const tr = document.createElement('tr');
+                  tr.className = 'pr-row';
+                  tr.innerHTML = `<td><input type='checkbox' class='pr-checkbox' name='pr' value='${pr.number}'></td>` +
+                                 `<td>${pr.title}</td>` +
+                                 `<td data-sort='${pr.created_at}'>${pr.created_at.slice(0,16).replace('T',' ')}</td>` +
+                                 `<td><a href='${pr.html_url}' target='_blank'>#${pr.number}</a></td>`;
+                  tbody.appendChild(tr);
+                  const pct = Math.round(((idx + 1) / data.pulls.length) * 100);
+                  updateProgress(pct, 'Loading pull requests');
+                });
+                initPRInteractions();
+                updateProgress(100, 'Ready');
+              })
+              .catch(() => { updateProgress(100, 'Error'); });
+          }
         }
         document.addEventListener('DOMContentLoaded', function() {
           loadPRs();

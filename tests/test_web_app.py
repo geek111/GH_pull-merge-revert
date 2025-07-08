@@ -40,6 +40,27 @@ class WebAppTestCase(unittest.TestCase):
             data = resp.get_json()
             self.assertEqual(data['pulls'][0]['html_url'], pr.html_url)
 
+    def test_pulls_stream_returns_events(self):
+        with patch('web_app.Github') as MockGithub:
+            g = MockGithub.return_value
+            repo = Mock()
+            repo.full_name = 'owner/repo'
+            pr = Mock()
+            pr.number = 1
+            pr.title = 'Test'
+            pr.html_url = 'https://github.com/owner/repo/pull/1'
+            pr.created_at.isoformat.return_value = '2021-01-01T00:00:00'
+            pulls = type('Dummy', (list,), {})([pr])
+            pulls.totalCount = 1
+            repo.get_pulls.return_value = pulls
+            g.get_repo.return_value = repo
+            with self.client.session_transaction() as sess:
+                sess['token'] = 'token'
+            resp = self.client.get('/api/pulls_stream/owner/repo')
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.content_type, 'text/event-stream')
+            self.assertIn(pr.html_url, resp.get_data(as_text=True))
+
     def test_index_page_loads(self):
         resp = self.client.get('/')
         self.assertEqual(resp.status_code, 200)
