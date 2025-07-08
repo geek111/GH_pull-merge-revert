@@ -13,6 +13,7 @@ from flask import (
 from github import Github
 from github.GithubException import GithubException
 from unittest.mock import Mock
+from concurrent.futures import ThreadPoolExecutor
 
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
@@ -270,9 +271,9 @@ def api_branches(full_name: str) -> dict:
     repo = g.get_repo(full_name)
     cfg = load_config()
     protected = cfg.get("protected_branches", {}).get(full_name, [])
-    branches = repo.get_branches()
-    data = []
-    for br in branches:
+    branches = list(repo.get_branches())
+
+    def process_branch(br):
         date = None
         if hasattr(br, "commit") and hasattr(br.commit, "commit"):
             author = getattr(br.commit.commit, "author", None)
@@ -281,14 +282,15 @@ def api_branches(full_name: str) -> dict:
                     date = author.date.isoformat()
                 except Exception:
                     date = str(author.date)
-        data.append(
-            {
-                "name": br.name,
-                "date": date or "",
-                "html_url": f"https://github.com/{full_name}/tree/{br.name}",
-                "protected": br.name in protected,
-            }
-        )
+        return {
+            "name": br.name,
+            "date": date or "",
+            "html_url": f"https://github.com/{full_name}/tree/{br.name}",
+            "protected": br.name in protected,
+        }
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        data = list(executor.map(process_branch, branches))
     return {"branches": data}
 
 
