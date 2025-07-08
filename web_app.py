@@ -1,6 +1,7 @@
 import os
 import subprocess
 import json
+import datetime
 from flask import (
     Flask,
     render_template_string,
@@ -21,6 +22,7 @@ __version__ = "1.8.0"
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
 CONFIG_FILE = "config.json"
+PROTECTED_BRANCHES_FILE = "protected_branches.json"
 
 # Responsive navigation bar shared across pages
 NAV_TEMPLATE = """
@@ -47,6 +49,9 @@ NAV_TEMPLATE = """
 .nav-links {
   display: flex;
   flex-wrap: wrap;
+}
+.protected {
+  background-color: #fff2cc;
 }
 #progress-container {
   width: 100%;
@@ -150,6 +155,21 @@ def save_token(token: str) -> None:
         json.dump(cfg, f)
 
 
+def load_protected_branches() -> set[str]:
+    if os.path.exists(PROTECTED_BRANCHES_FILE):
+        try:
+            with open(PROTECTED_BRANCHES_FILE, "r", encoding="utf-8") as f:
+                return set(json.load(f))
+        except Exception:
+            return set()
+    return set()
+
+
+def save_protected_branches(branches: set[str]) -> None:
+    with open(PROTECTED_BRANCHES_FILE, "w", encoding="utf-8") as f:
+        json.dump(sorted(branches), f)
+
+
 def get_local_repo(repo_url: str) -> str:
     os.makedirs(CACHE_DIR, exist_ok=True)
     name = os.path.splitext(os.path.basename(repo_url))[0]
@@ -216,7 +236,7 @@ def api_pulls(full_name: str) -> dict:
                 "number": pr.number,
                 "title": pr.title,
                 "html_url": pr.html_url,
-                "created_at": pr.created_at.isoformat(),
+                "created_at": (pr.created_at.isoformat() if isinstance(getattr(pr, "created_at", None), datetime.datetime) else ""),
             }
             for pr in pulls
         ]
@@ -430,6 +450,7 @@ def repo(full_name):
         """,
         full_name=full_name,
         repo_name=full_name,
+        protected=protected,
     )
 
 
@@ -440,15 +461,31 @@ def branches(full_name):
         return redirect(url_for("index"))
     g = Github(token, per_page=100)
     repo = g.get_repo(full_name)
+    protected = load_protected_branches()
     if request.method == "POST":
         names = request.form.getlist("branch")
-        for name in names:
-            try:
-                ref = repo.get_git_ref(f"heads/{name}")
-                ref.delete()
-            except GithubException as e:
-                flash(f"Failed to delete {name}: {e.data}")
-        flash("Action completed")
+        action = request.form.get("action", "delete")
+        if action == "delete":
+            for name in names:
+                if name in protected:
+                    flash(f"{name} is protected and was not deleted")
+                    continue
+                try:
+                    ref = repo.get_git_ref(f"heads/{name}")
+                    ref.delete()
+                    protected.discard(name)
+                except GithubException as e:
+                    flash(f"Failed to delete {name}: {e.data}")
+            save_protected_branches(protected)
+            flash("Action completed")
+        elif action == "protect":
+            for name in names:
+                if name in protected:
+                    protected.remove(name)
+                else:
+                    protected.add(name)
+            save_protected_branches(protected)
+            flash("Action completed")
     branches = list(repo.get_branches())
     return render_template_string(
         NAV_TEMPLATE + """
@@ -465,16 +502,17 @@ def branches(full_name):
           </thead>
           <tbody>
           {% for br in branches %}
-            <tr class='branch-row'>
+            <tr class='branch-row {% if br.name in protected %}protected{% endif %}'>
               <td><input type='checkbox' class='branch-checkbox' name='branch' value='{{ br.name }}'></td>
-              <td>{{ br.name }}</td>
+              <td>{{ br.name }}{% if br.name in protected %} ★{% endif %}</td>
               <td data-sort='{{ br.commit.commit.author.date.isoformat() }}'>{{ br.commit.commit.author.date.strftime('%Y-%m-%d %H:%M') }}</td>
               <td><a href='https://github.com/{{ full_name }}/tree/{{ br.name }}' target='_blank'>{{ br.name }}</a></td>
             </tr>
           {% endfor %}
           </tbody>
         </table>
-        <button type='submit'>Delete Selected</button>
+        <button type='submit' name='action' value='delete'>Delete Selected</button>
+        <button type='submit' name='action' value='protect'>Toggle Protect</button>
         </form>
         <p><a href='{{ url_for("repo", full_name=full_name) }}'>Back</a></p>
         <script>

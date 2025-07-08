@@ -26,6 +26,7 @@ def blend_colors(widget, fg, bg, alpha=0.5):
 CONFIG_FILE = "config.json"
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
+PROTECTED_BRANCHES_FILE = "protected_branches.json"
 __version__ = "1.5.0"
 
 
@@ -44,7 +45,23 @@ def save_branch_cache(cache):
         json.dump(cache, f)
 
 
+def load_protected_branches():
+    if os.path.exists(PROTECTED_BRANCHES_FILE):
+        try:
+            with open(PROTECTED_BRANCHES_FILE, "r", encoding="utf-8") as f:
+                return set(json.load(f))
+        except Exception:
+            return set()
+    return set()
+
+
+def save_protected_branches(branches):
+    with open(PROTECTED_BRANCHES_FILE, "w", encoding="utf-8") as f:
+        json.dump(sorted(branches), f)
+
+
 branch_cache = load_branch_cache()
+protected_branches = load_protected_branches()
 
 
 class BulkMerger(tk.Tk):
@@ -552,12 +569,14 @@ class BranchManager(tk.Toplevel):
         scroll = ttk.Scrollbar(frm, orient="vertical", command=self.tree.yview)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.tree.configure(yscrollcommand=scroll.set)
+        self.tree.tag_configure("protected", background="#fff2cc")
 
         self.tree.bind("<Button-3>", self.show_context_menu)
 
         self.menu = tk.Menu(self, tearoff=0)
         self.menu.add_command(label="Check highlighted", command=self.check_selected)
         self.menu.add_command(label="Uncheck highlighted", command=self.uncheck_selected)
+        self.menu.add_command(label="Toggle Protect", command=self.toggle_protect)
 
         btn_frame = ttk.Frame(frm)
         btn_frame.pack(fill=tk.X, pady=5)
@@ -687,7 +706,9 @@ class BranchManager(tk.Toplevel):
             symbol = "☑" if var.get() else "☐"
             date_str = dt.strftime("%Y-%m-%d")
             status = self.branch_statuses.get(name, "")
-            self.tree.insert("", "end", iid=name, values=(symbol, name, date_str, status))
+            disp = f"{name} ★" if name in protected_branches else name
+            tag = "protected" if name in protected_branches else ""
+            self.tree.insert("", "end", iid=name, values=(symbol, disp, date_str, status), tags=(tag,))
 
     def check_selected(self):
         for iid in self.tree.selection():
@@ -703,6 +724,15 @@ class BranchManager(tk.Toplevel):
                 var.set(False)
                 self.tree.set(iid, "selected", "☐")
 
+    def toggle_protect(self):
+        for iid in self.tree.selection():
+            if iid in protected_branches:
+                protected_branches.remove(iid)
+            else:
+                protected_branches.add(iid)
+        save_protected_branches(protected_branches)
+        self.apply_filters()
+
     def delete_checked(self):
         confirm = messagebox.askyesno("Confirm", "Delete checked branches?")
         if not confirm:
@@ -712,6 +742,9 @@ class BranchManager(tk.Toplevel):
         repo = g.get_repo(self.repo_name)
         to_delete = [name for name, var in self.branch_vars.items() if var.get()]
         for name in to_delete:
+            if name in protected_branches:
+                messagebox.showinfo("Info", f"{name} is protected and was not deleted")
+                continue
             try:
                 ref = repo.get_git_ref(f"heads/{name}")
                 ref.delete()
@@ -721,9 +754,11 @@ class BranchManager(tk.Toplevel):
                     branch_cache[self.repo_name] = [
                         item for item in cached if item[0] != name
                     ]
+                protected_branches.discard(name)
             except GithubException as e:
                 messagebox.showerror("Error", f"Failed to delete {name}: {e.data}")
         save_branch_cache(branch_cache)
+        save_protected_branches(protected_branches)
         self.load_branches()
         self.set_status("Ready")
 
