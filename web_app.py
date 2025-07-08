@@ -71,6 +71,20 @@ NAV_TEMPLATE = """
   text-align: center;
   color: #000;
 }
+.table-hover tbody tr:hover td {
+  background: linear-gradient(90deg, rgba(255,255,255,0.9), rgba(230,240,255,0.9));
+  box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.2);
+  transition: background 0.3s ease;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th, td {
+  padding: 0.5rem;
+  border-bottom: 1px solid #ccc;
+  text-align: left;
+}
 @media (max-width: 600px) {
   .nav-links {
     display: none;
@@ -335,7 +349,7 @@ def repo(full_name):
         NAV_TEMPLATE + """
         <h2>Repository: {{full_name}}</h2>
         <form method='post' id='action-form'>
-        <table id='pr-table'>
+        <table id='pr-table' class='table-hover'>
           <thead>
             <tr>
               <th></th>
@@ -473,7 +487,7 @@ def branches(full_name):
         NAV_TEMPLATE + """
         <h2>Branches: {{full_name}}</h2>
         <form method='post'>
-        <table id='branch-table'>
+        <table id='branch-table' class='table-hover'>
           <thead>
             <tr>
               <th></th>
