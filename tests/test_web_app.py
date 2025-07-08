@@ -79,9 +79,10 @@ class WebAppTestCase(unittest.TestCase):
             g.get_repo.return_value = repo
             with self.client.session_transaction() as sess:
                 sess['token'] = 'token'
-            resp = self.client.get('/repo/owner/repo/branches')
+            resp = self.client.get('/api/branches/owner/repo')
             self.assertEqual(resp.status_code, 200)
-            self.assertIn(branch.name.encode(), resp.data)
+            data = resp.get_json()
+            self.assertEqual(data['branches'][0]['name'], branch.name)
 
     def test_delete_branch_calls_github(self):
         with patch('web_app.Github') as MockGithub:
