@@ -180,6 +180,21 @@ class BulkMerger(tk.Tk):
         status = self.status_var.get()
         self.progress_text.set(f"{percent}% - {status}")
 
+    def clear_pr_list(self):
+        for widget in self.pr_frame.winfo_children():
+            widget.destroy()
+        self.pr_vars.clear()
+
+    def add_pr_item(self, pr):
+        var = tk.BooleanVar()
+        ttk.Checkbutton(
+            self.pr_frame,
+            text=f"#{pr.number}: {pr.title}",
+            variable=var,
+        ).grid(row=len(self.pr_vars), column=0, sticky=tk.W)
+        self.pr_vars.append(var)
+        self.pr_frame.update_idletasks()
+
 
 
 
@@ -271,36 +286,32 @@ class BulkMerger(tk.Tk):
         def worker():
             token = self.token_var.get()
             repo_name = self.repo_var.get()
-            self.after(0, lambda: (self.set_status("Loading pull requests..."), self.reset_progress()))
+            self.after(0, lambda: (
+                self.set_status("Loading pull requests..."),
+                self.reset_progress(),
+                self.clear_pr_list(),
+            ))
             g = Github(token, per_page=100)
             repo = g.get_repo(repo_name)
-            prs = []
+            self.prs = []
             pulls = repo.get_pulls(state=state, sort="created")
             total = getattr(pulls, "totalCount", None)
             for idx, pr in enumerate(pulls):
                 if state != "closed" or pr.merged:
-                    prs.append(pr)
+                    self.prs.append(pr)
+                    self.after(0, lambda pr=pr: self.add_pr_item(pr))
                 if total:
                     progress = ((idx + 1) / total) * 100
                     self.after(0, lambda p=progress: self.set_progress(p))
-            def update_ui():
-                self.prs = prs
-                for widget in self.pr_frame.winfo_children():
-                    widget.destroy()
-                self.pr_vars.clear()
-                for i, pr in enumerate(self.prs):
-                    var = tk.BooleanVar()
-                    ttk.Checkbutton(
-                        self.pr_frame,
-                        text=f"#{pr.number}: {pr.title}",
-                        variable=var,
-                    ).grid(row=i, column=0, sticky=tk.W)
-                    self.pr_vars.append(var)
-                self.log(f"Loaded {len(self.prs)} pull requests.")
-                self.set_progress(100)
-                self.set_status("Ready")
-                PullRequestList(self, token, repo_name)
-            self.after(0, update_ui)
+            self.after(
+                0,
+                lambda: (
+                    self.log(f"Loaded {len(self.prs)} pull requests."),
+                    self.set_progress(100),
+                    self.set_status("Ready"),
+                    PullRequestList(self, token, repo_name),
+                ),
+            )
         self.run_async(worker)
 
     def attempt_conflict_resolution(self, repo_url, base_branch, pr_branch):
