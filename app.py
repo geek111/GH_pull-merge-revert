@@ -624,16 +624,25 @@ class BranchManager(tk.Toplevel):
             else:
                 g = Github(self.token, per_page=100)
                 repo = g.get_repo(self.repo_name)
-                branches_list = repo.get_branches()
+                branches_list = list(repo.get_branches())
                 branches = []
                 total = getattr(branches_list, "totalCount", None)
-                for idx, br in enumerate(branches_list):
-                    dt = br.commit.commit.author.date
-                    branches.append((br.name, dt))
-                    self.after(0, lambda n=br.name, d=dt: self._add_branch(n, d, "loading"))
-                    if total:
-                        progress = ((idx + 1) / (total * 2)) * 100
-                        self.after(0, lambda p=progress: self.set_progress(p))
+
+                def fetch_date(br):
+                    try:
+                        return br.name, br.commit.commit.author.date
+                    except Exception:
+                        return br.name, datetime.datetime.now()
+
+                with ThreadPoolExecutor(max_workers=5) as executor:
+                    futures = {executor.submit(fetch_date, br): br for br in branches_list}
+                    for idx, future in enumerate(as_completed(futures)):
+                        name, dt = future.result()
+                        branches.append((name, dt))
+                        self.after(0, lambda n=name, d=dt: self._add_branch(n, d, "loading"))
+                        if total:
+                            progress = ((idx + 1) / (total * 2)) * 100
+                            self.after(0, lambda p=progress: self.set_progress(p))
                 branch_cache[self.repo_name] = [(b, d.isoformat()) for b, d in branches]
                 save_branch_cache(branch_cache)
 
