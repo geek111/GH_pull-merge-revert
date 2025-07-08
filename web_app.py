@@ -85,6 +85,9 @@ NAV_TEMPLATE = """
     display: block;
   }
 }
+.protected-row {
+  background-color: #fee;
+}
 </style>
 <nav class="navbar">
   <a href="{{ url_for('index') }}" class="logo">Home</a>
@@ -442,13 +445,26 @@ def branches(full_name):
     repo = g.get_repo(full_name)
     if request.method == "POST":
         names = request.form.getlist("branch")
-        for name in names:
-            try:
-                ref = repo.get_git_ref(f"heads/{name}")
-                ref.delete()
-            except GithubException as e:
-                flash(f"Failed to delete {name}: {e.data}")
-        flash("Action completed")
+        action = request.form.get("action", "delete")
+        if action == "toggle":
+            for name in names:
+                try:
+                    br = repo.get_branch(name)
+                    if br.protected:
+                        br.remove_protection()
+                    else:
+                        br.edit_protection(enforce_admins=True)
+                except GithubException as e:
+                    flash(f"Failed to toggle {name}: {e.data}")
+            flash("Protection toggled")
+        else:
+            for name in names:
+                try:
+                    ref = repo.get_git_ref(f"heads/{name}")
+                    ref.delete()
+                except GithubException as e:
+                    flash(f"Failed to delete {name}: {e.data}")
+            flash("Action completed")
     branches = list(repo.get_branches())
     return render_template_string(
         NAV_TEMPLATE + """
@@ -461,20 +477,23 @@ def branches(full_name):
               <th>Name</th>
               <th id='date-header' data-order='asc'>Date</th>
               <th>Branch</th>
+              <th>Protected</th>
             </tr>
           </thead>
           <tbody>
           {% for br in branches %}
-            <tr class='branch-row'>
+            <tr class='branch-row{% if br.protected %} protected-row{% endif %}'>
               <td><input type='checkbox' class='branch-checkbox' name='branch' value='{{ br.name }}'></td>
               <td>{{ br.name }}</td>
               <td data-sort='{{ br.commit.commit.author.date.isoformat() }}'>{{ br.commit.commit.author.date.strftime('%Y-%m-%d %H:%M') }}</td>
               <td><a href='https://github.com/{{ full_name }}/tree/{{ br.name }}' target='_blank'>{{ br.name }}</a></td>
+              <td>{% if br.protected %}🔒{% endif %}</td>
             </tr>
           {% endfor %}
           </tbody>
         </table>
-        <button type='submit'>Delete Selected</button>
+        <button type='submit' name='action' value='delete'>Delete Selected</button>
+        <button type='submit' name='action' value='toggle'>Toggle Protection</button>
         </form>
         <p><a href='{{ url_for("repo", full_name=full_name) }}'>Back</a></p>
         <script>

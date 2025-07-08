@@ -1,4 +1,5 @@
 import unittest
+import datetime
 from unittest.mock import patch, Mock
 from web_app import app
 
@@ -31,6 +32,7 @@ class WebAppTestCase(unittest.TestCase):
             pr.number = 1
             pr.title = 'Test'
             pr.html_url = 'https://github.com/owner/repo/pull/1'
+            pr.created_at = datetime.datetime.now()
             repo.get_pulls.return_value = [pr]
             g.get_repo.return_value = repo
             with self.client.session_transaction() as sess:
@@ -75,6 +77,7 @@ class WebAppTestCase(unittest.TestCase):
             repo.full_name = 'owner/repo'
             branch = Mock()
             branch.name = 'feature'
+            branch.protected = True
             repo.get_branches.return_value = [branch]
             g.get_repo.return_value = repo
             with self.client.session_transaction() as sess:
@@ -82,6 +85,7 @@ class WebAppTestCase(unittest.TestCase):
             resp = self.client.get('/repo/owner/repo/branches')
             self.assertEqual(resp.status_code, 200)
             self.assertIn(branch.name.encode(), resp.data)
+            self.assertIn(b'\xf0\x9f\x94\x92', resp.data)
 
     def test_delete_branch_calls_github(self):
         with patch('web_app.Github') as MockGithub:
@@ -100,6 +104,24 @@ class WebAppTestCase(unittest.TestCase):
             self.assertEqual(resp.status_code, 200)
             repo.get_git_ref.assert_called_once_with('heads/old')
             ref.delete.assert_called_once()
+
+    def test_toggle_protection_calls_github(self):
+        with patch('web_app.Github') as MockGithub:
+            g = MockGithub.return_value
+            repo = Mock()
+            repo.full_name = 'owner/repo'
+            branch = Mock()
+            branch.name = 'old'
+            branch.protected = False
+            repo.get_branches.return_value = [branch]
+            repo.get_branch.return_value = branch
+            g.get_repo.return_value = repo
+            with self.client.session_transaction() as sess:
+                sess['token'] = 'token'
+            resp = self.client.post('/repo/owner/repo/branches', data={'branch': 'old', 'action': 'toggle'})
+            self.assertEqual(resp.status_code, 200)
+            repo.get_branch.assert_called_once_with('old')
+            branch.edit_protection.assert_called_once()
 
 if __name__ == '__main__':
     unittest.main()
