@@ -1,6 +1,7 @@
 import os
 import subprocess
 import json
+from datetime import datetime
 from flask import (
     Flask,
     render_template_string,
@@ -16,7 +17,7 @@ from github.GithubException import GithubException
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
 
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
@@ -84,6 +85,15 @@ NAV_TEMPLATE = """
   .nav-toggle {
     display: block;
   }
+}
+# Highlight table cells on hover
+table td {
+  transition: background-color 0.2s ease-in-out;
+}
+# Highlight entire row for clarity
+# Applies to both pull requests and branch tables
+table tr:hover td {
+  background-color: #e8f4ff;
 }
 </style>
 <nav class="navbar">
@@ -220,7 +230,7 @@ def api_pulls(full_name: str) -> dict:
                 "number": pr.number,
                 "title": pr.title,
                 "html_url": pr.html_url,
-                "created_at": pr.created_at.isoformat(),
+                "created_at": pr.created_at.isoformat() if isinstance(pr.created_at, datetime) else str(pr.created_at),
             }
             for pr in pulls
         ]
