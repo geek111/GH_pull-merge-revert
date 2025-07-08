@@ -13,6 +13,19 @@ from flask import (
 from github import Github
 from github.GithubException import GithubException
 from unittest.mock import Mock
+import time
+
+# Simple in-memory cache
+API_CACHE: dict[str, tuple[float, dict]] = {}
+
+def cache_get(key: str, ttl: int = 60) -> dict | None:
+    entry = API_CACHE.get(key)
+    if entry and time.time() - entry[0] < ttl:
+        return entry[1]
+    return None
+
+def cache_set(key: str, value: dict) -> None:
+    API_CACHE[key] = (time.time(), value)
 
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
@@ -217,12 +230,16 @@ def api_repos() -> dict:
     token = session.get("token")
     if not token:
         return {"error": "unauthorized"}, 401
+    cache_key = f"repos_{token}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
     g = Github(token, per_page=100)
     try:
         repos = list(g.get_user().get_repos())
     except GithubException as e:
         return {"error": str(e.data)}, 400
-    return {
+    result = {
         "repos": [
             {
                 "full_name": r.full_name,
@@ -232,6 +249,8 @@ def api_repos() -> dict:
             for r in repos
         ]
     }
+    cache_set(cache_key, result)
+    return result
 
 
 @app.route("/api/pulls/<path:full_name>")
@@ -239,10 +258,14 @@ def api_pulls(full_name: str) -> dict:
     token = session.get("token")
     if not token:
         return {"error": "unauthorized"}, 401
+    cache_key = f"pulls_{token}_{full_name}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
     g = Github(token, per_page=100)
     repo = g.get_repo(full_name)
     pulls = repo.get_pulls(state="open", sort="created")
-    return {
+    result = {
         "pulls": [
             {
                 "number": pr.number,
@@ -259,6 +282,8 @@ def api_pulls(full_name: str) -> dict:
             for pr in pulls
         ]
     }
+    cache_set(cache_key, result)
+    return result
 
 
 @app.route("/api/branches/<path:full_name>")
@@ -266,6 +291,10 @@ def api_branches(full_name: str) -> dict:
     token = session.get("token")
     if not token:
         return {"error": "unauthorized"}, 401
+    cache_key = f"branches_{token}_{full_name}"
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
     g = Github(token, per_page=100)
     repo = g.get_repo(full_name)
     cfg = load_config()
@@ -289,7 +318,9 @@ def api_branches(full_name: str) -> dict:
                 "protected": br.name in protected,
             }
         )
-    return {"branches": data}
+    result = {"branches": data}
+    cache_set(cache_key, result)
+    return result
 
 
 @app.route("/", methods=["GET", "POST"])
