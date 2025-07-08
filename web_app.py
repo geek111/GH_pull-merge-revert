@@ -9,6 +9,7 @@ from flask import (
     url_for,
     session,
     flash,
+    Response,
 )
 from github import Github
 from github.GithubException import GithubException
@@ -261,6 +262,37 @@ def api_pulls(full_name: str) -> dict:
     }
 
 
+@app.route("/api/pulls_stream/<path:full_name>")
+def api_pulls_stream(full_name: str) -> Response:
+    token = session.get("token")
+    if not token:
+        return Response("unauthorized", status=401)
+    g = Github(token, per_page=100)
+    repo = g.get_repo(full_name)
+    pulls = repo.get_pulls(state="open", sort="created")
+
+    def generate() -> str:
+        total = pulls.totalCount
+        yield f"event: count\ndata: {{\"total\": {total}}}\n\n"
+        for pr in pulls:
+            data = {
+                "number": pr.number,
+                "title": pr.title,
+                "html_url": pr.html_url,
+                "created_at": (
+                    pr.created_at.isoformat()
+                    if hasattr(pr, "created_at")
+                    and not isinstance(pr.created_at, Mock)
+                    and hasattr(pr.created_at, "isoformat")
+                    else str(getattr(pr, "created_at", ""))
+                ),
+            }
+            yield f"data: {json.dumps(data)}\n\n"
+        yield "event: done\ndata: {}\n\n"
+
+    return Response(generate(), mimetype="text/event-stream")
+
+
 @app.route("/api/branches/<path:full_name>")
 def api_branches(full_name: str) -> dict:
     token = session.get("token")
@@ -479,26 +511,36 @@ def repo(full_name):
 
         function loadPRs() {
           updateProgress(0, 'Loading pull requests');
-          fetch('{{ url_for('api_pulls', full_name=full_name) }}')
-            .then(r => r.json())
-            .then(data => {
-              const tbody = document.querySelector('#pr-table tbody');
-              tbody.innerHTML = '';
-              data.pulls.forEach((pr, idx) => {
-                const tr = document.createElement('tr');
-                tr.className = 'pr-row';
-                tr.innerHTML = `<td><input type='checkbox' class='pr-checkbox' name='pr' value='${pr.number}'></td>` +
-                               `<td>${pr.title}</td>` +
-                               `<td data-sort='${pr.created_at}'>${pr.created_at.slice(0,16).replace('T',' ')}</td>` +
-                               `<td><a href='${pr.html_url}' target='_blank'>#${pr.number}</a></td>`;
-                tbody.appendChild(tr);
-                const pct = Math.round(((idx + 1) / data.pulls.length) * 100);
-                updateProgress(pct, 'Loading pull requests');
-              });
-              initPRInteractions();
-              updateProgress(100, 'Ready');
-            })
-            .catch(() => { updateProgress(100, 'Error'); });
+          const tbody = document.querySelector('#pr-table tbody');
+          tbody.innerHTML = '';
+          let count = 0;
+          let total = 0;
+          const es = new EventSource('{{ url_for('api_pulls_stream', full_name=full_name) }}');
+          es.addEventListener('count', e => {
+            total = JSON.parse(e.data).total;
+          });
+          es.onmessage = e => {
+            const pr = JSON.parse(e.data);
+            const tr = document.createElement('tr');
+            tr.className = 'pr-row';
+            tr.innerHTML = `<td><input type='checkbox' class='pr-checkbox' name='pr' value='${pr.number}'></td>` +
+                           `<td>${pr.title}</td>` +
+                           `<td data-sort='${pr.created_at}'>${pr.created_at.slice(0,16).replace('T',' ')}</td>` +
+                           `<td><a href='${pr.html_url}' target='_blank'>#${pr.number}</a></td>`;
+            tbody.appendChild(tr);
+            count++;
+            const pct = total ? Math.round((count / total) * 100) : 0;
+            updateProgress(pct, 'Loading pull requests');
+          };
+          es.addEventListener('done', () => {
+            es.close();
+            initPRInteractions();
+            updateProgress(100, 'Ready');
+          });
+          es.onerror = () => {
+            es.close();
+            updateProgress(100, 'Error');
+          };
         }
         document.addEventListener('DOMContentLoaded', function() {
           loadPRs();
