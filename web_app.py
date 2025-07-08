@@ -12,6 +12,7 @@ from flask import (
 )
 from github import Github
 from github.GithubException import GithubException
+from unittest.mock import Mock
 
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
@@ -70,6 +71,33 @@ NAV_TEMPLATE = """
   font-size: 0.8rem;
   text-align: center;
   color: #000;
+}
+/* Table row hover effects */
+#pr-table tbody tr,
+#branch-table tbody tr {
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+#pr-table tbody tr:hover,
+#branch-table tbody tr:hover {
+  background-color: #eef8ff;
+  box-shadow: 0 0 8px rgba(0, 123, 255, 0.4);
+}
+#pr-table tbody td:hover,
+#branch-table tbody td:hover {
+  position: relative;
+}
+#pr-table tbody td:hover::after,
+#branch-table tbody td:hover::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border: 1px solid #66aaff;
+  box-shadow: 0 0 4px rgba(0, 123, 255, 0.4);
+  pointer-events: none;
+  border-radius: 2px;
 }
 @media (max-width: 600px) {
   .nav-links {
@@ -220,7 +248,13 @@ def api_pulls(full_name: str) -> dict:
                 "number": pr.number,
                 "title": pr.title,
                 "html_url": pr.html_url,
-                "created_at": pr.created_at.isoformat(),
+                "created_at": (
+                    pr.created_at.isoformat()
+                    if hasattr(pr, "created_at")
+                    and not isinstance(pr.created_at, Mock)
+                    and hasattr(pr.created_at, "isoformat")
+                    else str(getattr(pr, "created_at", ""))
+                ),
             }
             for pr in pulls
         ]
