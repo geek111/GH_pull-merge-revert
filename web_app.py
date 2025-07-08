@@ -261,6 +261,64 @@ def api_pulls(full_name: str) -> dict:
     }
 
 
+@app.route("/api/repo_action/<path:full_name>", methods=["POST"])
+def api_repo_action(full_name: str) -> dict:
+    token = session.get("token")
+    if not token:
+        return {"error": "unauthorized"}, 401
+    g = Github(token, per_page=100)
+    repo = g.get_repo(full_name)
+    data = request.get_json(silent=True) or {}
+    action = data.get("action")
+    numbers = data.get("prs", [])
+    prs = [repo.get_pull(int(n)) for n in numbers]
+    messages: list[str] = []
+    if action == "merge":
+        for pr in prs:
+            try:
+                pr.merge()
+            except GithubException as e:
+                messages.append(f"Failed to merge PR #{pr.number}: {e.data}")
+    elif action == "revert":
+        repo_url = repo.clone_url.replace("https://", f"https://{token}@")
+        for pr in prs:
+            if pr.merged:
+                subprocess.run(["git", "clone", repo_url, "tmp"], check=True)
+                subprocess.run(["git", "-C", "tmp", "checkout", pr.base.ref], check=True)
+                subprocess.run(["git", "-C", "tmp", "pull"], check=True)
+                subprocess.run(["git", "-C", "tmp", "revert", "-m", "1", pr.merge_commit_sha], check=True)
+                subprocess.run(["git", "-C", "tmp", "push", "origin", pr.base.ref], check=True)
+                subprocess.run(["rm", "-rf", "tmp"])
+    elif action == "close":
+        for pr in prs:
+            pr.edit(state="closed")
+    else:
+        return {"error": "invalid action"}, 400
+    return {"status": "ok", "messages": messages}
+
+
+@app.route("/api/branches/<path:full_name>")
+def api_branches(full_name: str) -> dict:
+    token = session.get("token")
+    if not token:
+        return {"error": "unauthorized"}, 401
+    g = Github(token, per_page=100)
+    repo = g.get_repo(full_name)
+    cfg = load_config()
+    protected = set(cfg.get("protected_branches", {}).get(full_name, []))
+    branches = repo.get_branches()
+    return {
+        "branches": [
+            {
+                "name": br.name,
+                "date": br.commit.commit.author.date.isoformat(),
+                "protected": br.name in protected,
+            }
+            for br in branches
+        ]
+    }
+
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     cfg = load_config()
@@ -441,7 +499,7 @@ def repo(full_name):
           });
         }
 
-        document.addEventListener('DOMContentLoaded', function() {
+        function loadPulls() {
           updateProgress(0, 'Loading pull requests');
           fetch('{{ url_for('api_pulls', full_name=full_name) }}')
             .then(r => r.json())
@@ -463,6 +521,32 @@ def repo(full_name):
               updateProgress(100, 'Ready');
             })
             .catch(() => { updateProgress(100, 'Error'); });
+        }
+
+        function submitAction(action) {
+          const form = document.getElementById('action-form');
+          const selected = Array.from(form.querySelectorAll('.pr-checkbox:checked')).map(cb => parseInt(cb.value));
+          if (!selected.length) return;
+          updateProgress(0, action + 'ing');
+          fetch('{{ url_for('api_repo_action', full_name=full_name) }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: action, prs: selected })
+          })
+            .then(r => r.json())
+            .then(() => { loadPulls(); })
+            .catch(() => { updateProgress(100, 'Error'); });
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+          loadPulls();
+          setInterval(loadPulls, 15000);
+          document.querySelectorAll('#action-form button[type=submit]').forEach(btn => {
+            btn.addEventListener('click', function(e) {
+              e.preventDefault();
+              submitAction(this.value);
+            });
+          });
         });
         </script>
         """,
@@ -537,7 +621,27 @@ def branches(full_name):
         </form>
         <p><a href='{{ url_for("repo", full_name=full_name) }}'>Back</a></p>
         <script>
-        document.addEventListener('DOMContentLoaded', function() {
+        function loadBranches() {
+          fetch('{{ url_for('api_branches', full_name=full_name) }}')
+            .then(r => r.json())
+            .then(data => {
+              const tbody = document.querySelector('#branch-table tbody');
+              tbody.innerHTML = '';
+              data.branches.forEach(br => {
+                const tr = document.createElement('tr');
+                tr.className = 'branch-row';
+                tr.innerHTML = `<td><input type='checkbox' class='branch-checkbox' name='branch' value='${br.name}'></td>` +
+                               `<td>${br.name}</td>` +
+                               `<td data-sort='${br.date}'>${br.date.slice(0,16).replace('T',' ')}</td>` +
+                               `<td><a href='https://github.com/{{ full_name }}/tree/${br.name}' target='_blank'>${br.name}</a></td>` +
+                               `<td><form method='post' style='display:inline'><button name='toggle_protect' value='${br.name}' style='background:none;border:none'>${br.protected ? '★' : '☆'}</button></form></td>`;
+                tbody.appendChild(tr);
+              });
+              initBranchInteractions();
+            });
+        }
+
+        function initBranchInteractions() {
           const rows = Array.from(document.querySelectorAll('.branch-row'));
           const boxes = rows.map(r => r.querySelector('.branch-checkbox'));
           let last = null;
@@ -589,6 +693,18 @@ def branches(full_name):
             });
             newRows.forEach(r => tbody.appendChild(r));
             dateHeader.dataset.order = asc ? 'asc' : 'desc';
+          });
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+          loadBranches();
+          setInterval(loadBranches, 15000);
+          const form = document.querySelector('form');
+          form.addEventListener('submit', function(e) {
+            e.preventDefault();
+            fetch(form.action, { method: 'POST', body: new FormData(form) })
+              .then(() => { loadBranches(); })
+              .catch(() => { updateProgress(100, 'Error'); });
           });
         });
         </script>
