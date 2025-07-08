@@ -48,6 +48,21 @@ NAV_TEMPLATE = """
   display: flex;
   flex-wrap: wrap;
 }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th, td {
+  padding: 0.4rem 0.6rem;
+}
+tbody tr {
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+tbody tr:hover {
+  background-color: #f0f8ff;
+  box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.15);
+}
 #progress-container {
   width: 100%;
   height: 20px;
@@ -220,7 +235,7 @@ def api_pulls(full_name: str) -> dict:
                 "number": pr.number,
                 "title": pr.title,
                 "html_url": pr.html_url,
-                "created_at": pr.created_at.isoformat(),
+                "created_at": str(getattr(pr, 'created_at', '')),
             }
             for pr in pulls
         ]
