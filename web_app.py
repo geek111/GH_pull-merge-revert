@@ -73,6 +73,24 @@ NAV_TEMPLATE = """
   text-align: center;
   color: #000;
 }
+body.dark-mode {
+  background-color: #222;
+  color: #eee;
+}
+body.dark-mode a {
+  color: #4dabff;
+}
+#dark-mode-toggle {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 1.5rem;
+  cursor: pointer;
+  margin-left: 0.5rem;
+}
+body.dark-mode #dark-mode-toggle {
+  color: #ffda6a;
+}
 /* Table row hover effects */
 #pr-table tbody tr,
 #branch-table tbody tr {
@@ -118,6 +136,7 @@ NAV_TEMPLATE = """
 <nav class="navbar">
   <a href="{{ url_for('index') }}" class="logo">Home</a>
   <span class="nav-toggle">&#9776;</span>
+  <button id="dark-mode-toggle" aria-label="Toggle dark mode">\u263D</button>
   <div class="nav-links">
     {% if session.get('token') %}
     <a href="{{ url_for('repos') }}">Repositories</a>
@@ -152,6 +171,17 @@ document.addEventListener('DOMContentLoaded', function() {
   if (toggle && links) {
     toggle.addEventListener('click', () => {
       links.style.display = links.style.display === 'block' ? 'none' : 'block';
+    });
+  }
+  const darkToggle = document.getElementById('dark-mode-toggle');
+  if (darkToggle) {
+    const isDark = localStorage.getItem('darkMode') === 'true';
+    document.body.classList.toggle('dark-mode', isDark);
+    darkToggle.textContent = isDark ? '\u2600' : '\u263D';
+    darkToggle.addEventListener('click', () => {
+      const dark = document.body.classList.toggle('dark-mode');
+      localStorage.setItem('darkMode', dark);
+      darkToggle.textContent = dark ? '\u2600' : '\u263D';
     });
   }
 });

@@ -45,6 +45,11 @@ class WebAppTestCase(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn(b'GitHub Bulk Merger - Web', resp.data)
 
+    def test_index_includes_dark_mode_toggle(self):
+        resp = self.client.get('/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(b'id="dark-mode-toggle"', resp.data)
+
     def test_token_saved_when_remember_checked(self):
         with patch('web_app.save_token') as mock_save:
             resp = self.client.post('/', data={'token': 'abc', 'remember': 'on'})
