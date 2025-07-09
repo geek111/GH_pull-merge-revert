@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 app = Flask(__name__)
 app.secret_key = "replace-this"  # In production use env var
 
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
@@ -33,6 +33,13 @@ NAV_TEMPLATE = """
   align-items: center;
   background-color: #333;
   padding: 0.5rem;
+}
+.theme-toggle {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 1.5rem;
+  cursor: pointer;
 }
 .navbar a {
   color: #fff;
@@ -72,6 +79,16 @@ NAV_TEMPLATE = """
   font-size: 0.8rem;
   text-align: center;
   color: #000;
+}
+body.dark {
+  background-color: #121212;
+  color: #eee;
+}
+body.dark .navbar {
+  background-color: #222;
+}
+body.dark a {
+  color: #81b7ff;
 }
 /* Table row hover effects */
 #pr-table tbody tr,
@@ -118,6 +135,7 @@ NAV_TEMPLATE = """
 <nav class="navbar">
   <a href="{{ url_for('index') }}" class="logo">Home</a>
   <span class="nav-toggle">&#9776;</span>
+  <button id="theme-toggle" class="theme-toggle">🌙</button>
   <div class="nav-links">
     {% if session.get('token') %}
     <a href="{{ url_for('repos') }}">Repositories</a>
@@ -149,9 +167,23 @@ function updateProgress(percent, status) {
 document.addEventListener('DOMContentLoaded', function() {
   const toggle = document.querySelector('.nav-toggle');
   const links = document.querySelector('.nav-links');
+  const themeToggle = document.getElementById('theme-toggle');
+  const applyTheme = () => {
+    const dark = localStorage.getItem('dark') === 'true';
+    document.body.classList.toggle('dark', dark);
+    if (themeToggle) themeToggle.textContent = dark ? '☀️' : '🌙';
+  };
   if (toggle && links) {
     toggle.addEventListener('click', () => {
       links.style.display = links.style.display === 'block' ? 'none' : 'block';
+    });
+  }
+  applyTheme();
+  if (themeToggle) {
+    themeToggle.addEventListener('click', () => {
+      const dark = document.body.classList.toggle('dark');
+      localStorage.setItem('dark', dark);
+      themeToggle.textContent = dark ? '☀️' : '🌙';
     });
   }
 });
