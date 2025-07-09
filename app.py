@@ -5,7 +5,10 @@ import subprocess
 import webbrowser
 import datetime
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox
+import ttkbootstrap as tb
+from ttkbootstrap.widgets import Floodgauge
+from tkinter import ttk
 import tkinter.font as tkfont
 
 from github import Github
@@ -26,7 +29,7 @@ def blend_colors(widget, fg, bg, alpha=0.5):
 CONFIG_FILE = "config.json"
 CACHE_DIR = "repo_cache"
 BRANCH_CACHE_FILE = "branch_cache.json"
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 
 
 def load_branch_cache():
@@ -50,6 +53,7 @@ branch_cache = load_branch_cache()
 class BulkMerger(tk.Tk):
     def __init__(self):
         super().__init__()
+        tb.Style("flatly")
         default_font = tkfont.nametofont("TkDefaultFont")
         default_font.configure(size=13)
         self.option_add("*Font", default_font)
@@ -134,29 +138,16 @@ class BulkMerger(tk.Tk):
         progress_frame.grid(row=7, column=0, columnspan=4, sticky=tk.EW, pady=5)
         progress_frame.columnconfigure(0, weight=1)
         self.progress_text = tk.StringVar(value="0% - Ready")
-        style = ttk.Style()
-        style.configure(
-            "Loading.Horizontal.TProgressbar",
-            foreground="#1E90FF",
-            background="#1E90FF",
-        )
-        self.progress = ttk.Progressbar(
+        self.progress = Floodgauge(
             progress_frame,
             variable=self.progress_var,
             maximum=100,
-            style="Loading.Horizontal.TProgressbar",
+            textvariable=self.progress_text,
+            bootstyle="info-striped",
+            font=default_font,
+            thickness=20,
         )
         self.progress.grid(row=0, column=0, sticky="ew")
-        self.progress_label = tk.Label(
-            progress_frame,
-            textvariable=self.progress_text,
-            bg="",
-            borderwidth=0,
-            anchor="center",
-        )
-        self.progress_label.place(relx=0.5, rely=0.5, anchor="center")
-        faded = blend_colors(self.progress_label, self.progress_label.cget("fg"), status_bg, 0.5)
-        self.progress_label.configure(fg=faded)
 
     def log(self, message):
         self.text_output.insert(tk.END, message + "\n")
@@ -578,30 +569,16 @@ class BranchManager(tk.Toplevel):
         progress_frame = ttk.Frame(frm)
         progress_frame.pack(fill=tk.X, pady=5)
         progress_frame.columnconfigure(0, weight=1)
-        status_bg = self.master.cget("bg")
-        style = ttk.Style()
-        style.configure(
-            "Loading.Horizontal.TProgressbar",
-            foreground="#1E90FF",
-            background="#1E90FF",
-        )
-        self.progress = ttk.Progressbar(
+        self.progress = Floodgauge(
             progress_frame,
             variable=self.progress_var,
             maximum=100,
-            style="Loading.Horizontal.TProgressbar",
+            textvariable=self.progress_text,
+            bootstyle="info-striped",
+            font=tkfont.nametofont("TkDefaultFont"),
+            thickness=20,
         )
         self.progress.grid(row=0, column=0, sticky="ew")
-        self.progress_label = tk.Label(
-            progress_frame,
-            textvariable=self.progress_text,
-            bg="",
-            borderwidth=0,
-            anchor="center",
-        )
-        self.progress_label.place(relx=0.5, rely=0.5, anchor="center")
-        faded = blend_colors(self.progress_label, self.progress_label.cget("fg"), status_bg, 0.5)
-        self.progress_label.configure(fg=faded)
 
     def show_context_menu(self, event):
         self.tree.focus_set()
