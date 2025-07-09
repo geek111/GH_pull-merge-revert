@@ -39,6 +39,13 @@ NAV_TEMPLATE = """
   margin-right: 1rem;
   text-decoration: none;
 }
+.theme-toggle {
+  background: none;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  font-size: 1.2rem;
+}
 .nav-toggle {
   display: none;
   margin-left: auto;
@@ -72,6 +79,22 @@ NAV_TEMPLATE = """
   font-size: 0.8rem;
   text-align: center;
   color: #000;
+}
+.dark-mode {
+  background-color: #222;
+  color: #ddd;
+}
+.dark-mode a {
+  color: #9cf;
+}
+.dark-mode .navbar {
+  background-color: #222;
+}
+.dark-mode #progress-container {
+  background-color: #333;
+}
+.dark-mode #progress-bar {
+  background-color: #2196f3;
 }
 /* Table row hover effects */
 #pr-table tbody tr,
@@ -118,6 +141,7 @@ NAV_TEMPLATE = """
 <nav class="navbar">
   <a href="{{ url_for('index') }}" class="logo">Home</a>
   <span class="nav-toggle">&#9776;</span>
+  <button id="theme-toggle" class="theme-toggle" aria-label="Toggle theme">\u263E</button>
   <div class="nav-links">
     {% if session.get('token') %}
     <a href="{{ url_for('repos') }}">Repositories</a>
@@ -149,9 +173,23 @@ function updateProgress(percent, status) {
 document.addEventListener('DOMContentLoaded', function() {
   const toggle = document.querySelector('.nav-toggle');
   const links = document.querySelector('.nav-links');
+  const themeBtn = document.getElementById('theme-toggle');
+  const storedTheme = localStorage.getItem('theme');
+  if (storedTheme === 'dark') {
+    document.body.classList.add('dark-mode');
+    if (themeBtn) themeBtn.textContent = '\u2600';
+  }
   if (toggle && links) {
     toggle.addEventListener('click', () => {
       links.style.display = links.style.display === 'block' ? 'none' : 'block';
+    });
+  }
+  if (themeBtn) {
+    themeBtn.addEventListener('click', () => {
+      document.body.classList.toggle('dark-mode');
+      const dark = document.body.classList.contains('dark-mode');
+      themeBtn.textContent = dark ? '\u2600' : '\u263E';
+      localStorage.setItem('theme', dark ? 'dark' : 'light');
     });
   }
 });
